@@ -29,6 +29,7 @@ const DEFAULT_DANGEROUS_NODE_DENY_COMMANDS = [
   "camera.snap",
   "camera.clip",
   "screen.record",
+  "desktop.act",
   "calendar.add",
   "contacts.add",
   "reminders.add",

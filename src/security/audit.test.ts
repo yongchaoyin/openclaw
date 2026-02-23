@@ -842,7 +842,7 @@ describe("security audit", () => {
         cfg: {
           gateway: {
             bind: "loopback",
-            nodes: { allowCommands: ["camera.snap", "screen.record"] },
+            nodes: { allowCommands: ["camera.snap", "screen.record", "desktop.act"] },
           },
         },
         expectedSeverity: "warn",
@@ -852,7 +852,7 @@ describe("security audit", () => {
         cfg: {
           gateway: {
             bind: "lan",
-            nodes: { allowCommands: ["camera.snap", "screen.record"] },
+            nodes: { allowCommands: ["camera.snap", "screen.record", "desktop.act"] },
           },
         },
         expectedSeverity: "critical",
@@ -867,6 +867,7 @@ describe("security audit", () => {
       expect(finding?.severity, testCase.name).toBe(testCase.expectedSeverity);
       expect(finding?.detail, testCase.name).toContain("camera.snap");
       expect(finding?.detail, testCase.name).toContain("screen.record");
+      expect(finding?.detail, testCase.name).toContain("desktop.act");
     }
   });
 
@@ -874,8 +875,8 @@ describe("security audit", () => {
     const cfg: OpenClawConfig = {
       gateway: {
         nodes: {
-          allowCommands: ["camera.snap", "screen.record"],
-          denyCommands: ["camera.snap", "screen.record"],
+          allowCommands: ["camera.snap", "screen.record", "desktop.act"],
+          denyCommands: ["camera.snap", "screen.record", "desktop.act"],
         },
       },
     };

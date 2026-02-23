@@ -7,6 +7,7 @@ import { ensureOpenClawCliOnPath } from "../infra/path-env.js";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../utils/message-channel.js";
 import { VERSION } from "../version.js";
 import { ensureNodeHostConfig, saveNodeHostConfig, type NodeHostGatewayConfig } from "./config.js";
+import { listDesktopNodeCaps, listDesktopNodeCommands } from "./invoke-desktop.js";
 import {
   coerceNodeInvokePayload,
   handleInvoke,
@@ -105,6 +106,8 @@ export async function runNodeHost(opts: NodeHostRunOptions): Promise<void> {
   const pathEnv = ensureNodePathEnv();
   // eslint-disable-next-line no-console
   console.log(`node host PATH: ${pathEnv}`);
+  const desktopCaps = listDesktopNodeCaps();
+  const desktopCommands = listDesktopNodeCommands();
 
   const client = new GatewayClient({
     url,
@@ -118,12 +121,13 @@ export async function runNodeHost(opts: NodeHostRunOptions): Promise<void> {
     mode: GATEWAY_CLIENT_MODES.NODE,
     role: "node",
     scopes: [],
-    caps: ["system", ...(browserProxyEnabled ? ["browser"] : [])],
+    caps: ["system", ...desktopCaps, ...(browserProxyEnabled ? ["browser"] : [])],
     commands: [
       "system.run",
       "system.which",
       "system.execApprovals.get",
       "system.execApprovals.set",
+      ...desktopCommands,
       ...(browserProxyEnabled ? ["browser.proxy"] : []),
     ],
     pathEnv,

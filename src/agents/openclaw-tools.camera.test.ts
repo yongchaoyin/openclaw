@@ -103,6 +103,72 @@ describe("nodes camera_snap", () => {
   });
 });
 
+describe("nodes desktop", () => {
+  it("maps desktop_snapshot jpeg payloads to image/jpeg", async () => {
+    callGateway.mockImplementation(async ({ method }) => {
+      if (method === "node.list") {
+        return mockNodeList();
+      }
+      if (method === "node.invoke") {
+        return {
+          payload: {
+            format: "jpeg",
+            base64: "aGVsbG8=",
+            width: 1280,
+            height: 720,
+          },
+        };
+      }
+      return unexpectedGatewayMethod(method);
+    });
+
+    const result = await executeNodes({
+      action: "desktop_snapshot",
+      node: NODE_ID,
+      format: "jpeg",
+    });
+
+    const images = (result.content ?? []).filter((block) => block.type === "image");
+    expect(images).toHaveLength(1);
+    expect(images[0]?.mimeType).toBe("image/jpeg");
+  });
+
+  it("forwards desktop_act payload and invoke timeout", async () => {
+    callGateway.mockImplementation(async ({ method, params }) => {
+      if (method === "node.list") {
+        return mockNodeList();
+      }
+      if (method === "node.invoke") {
+        expect(params).toMatchObject({
+          nodeId: NODE_ID,
+          command: "desktop.act",
+          timeoutMs: 4_000,
+          params: {
+            kind: "click",
+            x: 100,
+            y: 200,
+            button: "left",
+          },
+        });
+        return { payload: { ok: true, kind: "click" } };
+      }
+      return unexpectedGatewayMethod(method);
+    });
+
+    const result = await executeNodes({
+      action: "desktop_act",
+      node: NODE_ID,
+      kind: "click",
+      x: 100,
+      y: 200,
+      button: "left",
+      invokeTimeoutMs: 4_000,
+    });
+
+    expect(result.details).toMatchObject({ ok: true, kind: "click" });
+  });
+});
+
 describe("nodes run", () => {
   it("passes invoke and command timeouts", async () => {
     callGateway.mockImplementation(async ({ method, params }) => {

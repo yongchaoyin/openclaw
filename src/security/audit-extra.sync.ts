@@ -836,7 +836,7 @@ export function collectNodeDangerousAllowCommandFindings(
     title: "Dangerous node commands explicitly enabled",
     detail:
       `gateway.nodes.allowCommands includes: ${dangerousAllowed.join(", ")}. ` +
-      "These commands can trigger high-impact device actions (camera/screen/contacts/calendar/reminders/SMS).",
+      "These commands can trigger high-impact device actions (camera/screen/desktop control/contacts/calendar/reminders/SMS).",
     remediation:
       "Remove these entries from gateway.nodes.allowCommands (recommended). " +
       "If you keep them, treat gateway auth as full operator access and keep gateway exposure local/tailnet-only.",

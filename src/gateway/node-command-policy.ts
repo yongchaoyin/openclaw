@@ -19,6 +19,9 @@ const SCREEN_DANGEROUS_COMMANDS = ["screen.record"];
 
 const LOCATION_COMMANDS = ["location.get"];
 
+const DESKTOP_COMMANDS = ["desktop.snapshot"];
+const DESKTOP_DANGEROUS_COMMANDS = ["desktop.act"];
+
 const DEVICE_COMMANDS = ["device.info", "device.status"];
 
 const CONTACTS_COMMANDS = ["contacts.search"];
@@ -46,6 +49,7 @@ const SYSTEM_COMMANDS = ["system.run", "system.which", "system.notify", "browser
 export const DEFAULT_DANGEROUS_NODE_COMMANDS = [
   ...CAMERA_DANGEROUS_COMMANDS,
   ...SCREEN_DANGEROUS_COMMANDS,
+  ...DESKTOP_DANGEROUS_COMMANDS,
   ...CONTACTS_DANGEROUS_COMMANDS,
   ...CALENDAR_DANGEROUS_COMMANDS,
   ...REMINDERS_DANGEROUS_COMMANDS,
@@ -87,10 +91,17 @@ const PLATFORM_DEFAULTS: Record<string, string[]> = {
     ...PHOTOS_COMMANDS,
     ...MOTION_COMMANDS,
     ...SYSTEM_COMMANDS,
+    ...DESKTOP_COMMANDS,
   ],
-  linux: [...SYSTEM_COMMANDS],
-  windows: [...SYSTEM_COMMANDS],
-  unknown: [...CANVAS_COMMANDS, ...CAMERA_COMMANDS, ...LOCATION_COMMANDS, ...SYSTEM_COMMANDS],
+  linux: [...SYSTEM_COMMANDS, ...DESKTOP_COMMANDS],
+  windows: [...SYSTEM_COMMANDS, ...DESKTOP_COMMANDS],
+  unknown: [
+    ...CANVAS_COMMANDS,
+    ...CAMERA_COMMANDS,
+    ...LOCATION_COMMANDS,
+    ...SYSTEM_COMMANDS,
+    ...DESKTOP_COMMANDS,
+  ],
 };
 
 function normalizePlatformId(platform?: string, deviceFamily?: string): string {

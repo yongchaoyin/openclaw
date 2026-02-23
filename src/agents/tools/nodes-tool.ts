@@ -10,6 +10,11 @@ import {
   writeBase64ToFile,
   writeUrlToFile,
 } from "../../cli/nodes-camera.js";
+import {
+  desktopSnapshotTempPath,
+  parseDesktopSnapshotPayload,
+  writeDesktopSnapshotToFile,
+} from "../../cli/nodes-desktop.js";
 import { parseEnvPairs, parseTimeoutMs } from "../../cli/nodes-run.js";
 import {
   parseScreenRecordPayload,
@@ -38,6 +43,8 @@ const NODES_TOOL_ACTIONS = [
   "camera_list",
   "camera_clip",
   "screen_record",
+  "desktop_snapshot",
+  "desktop_act",
   "location_get",
   "run",
   "invoke",
@@ -47,6 +54,20 @@ const NOTIFY_PRIORITIES = ["passive", "active", "timeSensitive"] as const;
 const NOTIFY_DELIVERIES = ["system", "overlay", "auto"] as const;
 const CAMERA_FACING = ["front", "back", "both"] as const;
 const LOCATION_ACCURACY = ["coarse", "balanced", "precise"] as const;
+const DESKTOP_SNAPSHOT_FORMAT = ["png", "jpeg"] as const;
+const DESKTOP_ACT_KIND = [
+  "click",
+  "doubleClick",
+  "rightClick",
+  "move",
+  "drag",
+  "type",
+  "hotkey",
+  "scroll",
+  "wait",
+  "done",
+] as const;
+const DESKTOP_MOUSE_BUTTON = ["left", "right", "middle"] as const;
 
 function isPairingRequiredMessage(message: string): boolean {
   const lower = message.toLowerCase();
@@ -91,6 +112,24 @@ const NodesToolSchema = Type.Object({
   fps: Type.Optional(Type.Number()),
   screenIndex: Type.Optional(Type.Number()),
   outPath: Type.Optional(Type.String()),
+  // desktop_snapshot
+  format: optionalStringEnum(DESKTOP_SNAPSHOT_FORMAT),
+  mainDisplayOnly: Type.Optional(Type.Boolean()),
+  // desktop_act
+  kind: optionalStringEnum(DESKTOP_ACT_KIND),
+  x: Type.Optional(Type.Number()),
+  y: Type.Optional(Type.Number()),
+  fromX: Type.Optional(Type.Number()),
+  fromY: Type.Optional(Type.Number()),
+  toX: Type.Optional(Type.Number()),
+  toY: Type.Optional(Type.Number()),
+  durationMsForAct: Type.Optional(Type.Number()),
+  deltaX: Type.Optional(Type.Number()),
+  deltaY: Type.Optional(Type.Number()),
+  text: Type.Optional(Type.String()),
+  keys: Type.Optional(Type.Array(Type.String())),
+  waitMs: Type.Optional(Type.Number()),
+  button: optionalStringEnum(DESKTOP_MOUSE_BUTTON),
   // location_get
   maxAgeMs: Type.Optional(Type.Number()),
   locationTimeoutMs: Type.Optional(Type.Number()),
@@ -121,7 +160,7 @@ export function createNodesTool(options?: {
     label: "Nodes",
     name: "nodes",
     description:
-      "Discover and control paired nodes (status/describe/pairing/notify/camera/screen/location/run/invoke).",
+      "Discover and control paired nodes (status/describe/pairing/notify/camera/screen/desktop/location/run/invoke).",
     parameters: NodesToolSchema,
     execute: async (_toolCallId, args) => {
       const params = args as Record<string, unknown>;
@@ -374,6 +413,136 @@ export function createNodesTool(options?: {
                 hasAudio: payload.hasAudio,
               },
             };
+          }
+          case "desktop_snapshot": {
+            const node = readStringParam(params, "node", { required: true });
+            const nodeId = await resolveNodeId(gatewayOpts, node);
+            const formatRaw =
+              typeof params.format === "string" ? params.format.toLowerCase() : "png";
+            if (formatRaw !== "png" && formatRaw !== "jpeg") {
+              throw new Error("invalid format (png|jpeg)");
+            }
+            const maxWidth =
+              typeof params.maxWidth === "number" && Number.isFinite(params.maxWidth)
+                ? params.maxWidth
+                : undefined;
+            const quality =
+              typeof params.quality === "number" && Number.isFinite(params.quality)
+                ? params.quality
+                : undefined;
+            const mainDisplayOnly =
+              typeof params.mainDisplayOnly === "boolean" ? params.mainDisplayOnly : undefined;
+
+            const raw = await callGatewayTool<{ payload: unknown }>("node.invoke", gatewayOpts, {
+              nodeId,
+              command: "desktop.snapshot",
+              params: {
+                format: formatRaw,
+                maxWidth,
+                quality,
+                mainDisplayOnly,
+              },
+              idempotencyKey: crypto.randomUUID(),
+            });
+            const payload = parseDesktopSnapshotPayload(raw?.payload);
+            const normalizedFormat = payload.format.toLowerCase();
+            if (
+              normalizedFormat !== "png" &&
+              normalizedFormat !== "jpg" &&
+              normalizedFormat !== "jpeg"
+            ) {
+              throw new Error(`unsupported desktop.snapshot format: ${payload.format}`);
+            }
+            const isJpeg = normalizedFormat === "jpg" || normalizedFormat === "jpeg";
+            const filePath = desktopSnapshotTempPath({
+              ext: isJpeg ? "jpg" : "png",
+            });
+            const written = await writeDesktopSnapshotToFile(filePath, payload.base64);
+
+            const result: AgentToolResult<unknown> = {
+              content: [
+                { type: "text", text: `MEDIA:${written.path}` },
+                {
+                  type: "image",
+                  data: payload.base64,
+                  mimeType: isJpeg ? "image/jpeg" : "image/png",
+                },
+              ],
+              details: {
+                path: written.path,
+                format: payload.format,
+                width: payload.width,
+                height: payload.height,
+              },
+            };
+            return await sanitizeToolResultImages(
+              result,
+              "nodes:desktop_snapshot",
+              imageSanitization,
+            );
+          }
+          case "desktop_act": {
+            const node = readStringParam(params, "node", { required: true });
+            const nodeId = await resolveNodeId(gatewayOpts, node);
+            const kind = readStringParam(params, "kind", { required: true });
+            const keys =
+              Array.isArray(params.keys) && params.keys.length > 0
+                ? params.keys.map((entry) => String(entry))
+                : undefined;
+            const invokeTimeoutMs = parseTimeoutMs(params.invokeTimeoutMs);
+            const actParams = {
+              kind,
+              x: typeof params.x === "number" && Number.isFinite(params.x) ? params.x : undefined,
+              y: typeof params.y === "number" && Number.isFinite(params.y) ? params.y : undefined,
+              fromX:
+                typeof params.fromX === "number" && Number.isFinite(params.fromX)
+                  ? params.fromX
+                  : undefined,
+              fromY:
+                typeof params.fromY === "number" && Number.isFinite(params.fromY)
+                  ? params.fromY
+                  : undefined,
+              toX:
+                typeof params.toX === "number" && Number.isFinite(params.toX)
+                  ? params.toX
+                  : undefined,
+              toY:
+                typeof params.toY === "number" && Number.isFinite(params.toY)
+                  ? params.toY
+                  : undefined,
+              durationMs:
+                typeof params.durationMsForAct === "number" &&
+                Number.isFinite(params.durationMsForAct)
+                  ? params.durationMsForAct
+                  : undefined,
+              deltaX:
+                typeof params.deltaX === "number" && Number.isFinite(params.deltaX)
+                  ? params.deltaX
+                  : undefined,
+              deltaY:
+                typeof params.deltaY === "number" && Number.isFinite(params.deltaY)
+                  ? params.deltaY
+                  : undefined,
+              text:
+                typeof params.text === "string" && params.text.length > 0 ? params.text : undefined,
+              keys,
+              ms:
+                typeof params.waitMs === "number" && Number.isFinite(params.waitMs)
+                  ? params.waitMs
+                  : undefined,
+              button:
+                typeof params.button === "string" && params.button.trim()
+                  ? params.button.trim()
+                  : undefined,
+            };
+            const raw = await callGatewayTool<{ payload: unknown }>("node.invoke", gatewayOpts, {
+              nodeId,
+              command: "desktop.act",
+              params: actParams,
+              timeoutMs: invokeTimeoutMs,
+              idempotencyKey: crypto.randomUUID(),
+            });
+            return jsonResult(raw?.payload ?? {});
           }
           case "location_get": {
             const node = readStringParam(params, "node", { required: true });

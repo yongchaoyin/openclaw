@@ -20,6 +20,12 @@ import {
 } from "../infra/exec-host.js";
 import { sanitizeHostExecEnv } from "../infra/host-env-security.js";
 import { runBrowserProxyCommand } from "./invoke-browser.js";
+import {
+  DESKTOP_ACT_COMMAND,
+  DESKTOP_SNAPSHOT_COMMAND,
+  runDesktopActCommand,
+  runDesktopSnapshotCommand,
+} from "./invoke-desktop.js";
 import { handleSystemRunInvoke } from "./invoke-system-run.js";
 import type {
   ExecEventPayload,
@@ -416,6 +422,30 @@ export async function handleInvoke(
       await sendRawPayloadResult(client, frame, payload);
     } catch (err) {
       await sendInvalidRequestResult(client, frame, err);
+    }
+    return;
+  }
+
+  if (command === DESKTOP_SNAPSHOT_COMMAND) {
+    try {
+      const payload = await runDesktopSnapshotCommand(frame.paramsJSON);
+      await sendRawPayloadResult(client, frame, payload);
+    } catch (err) {
+      const message = String(err);
+      const code = message.toLowerCase().includes("timed out") ? "TIMEOUT" : "INVALID_REQUEST";
+      await sendErrorResult(client, frame, code, message);
+    }
+    return;
+  }
+
+  if (command === DESKTOP_ACT_COMMAND) {
+    try {
+      const payload = await runDesktopActCommand(frame.paramsJSON);
+      await sendRawPayloadResult(client, frame, payload);
+    } catch (err) {
+      const message = String(err);
+      const code = message.toLowerCase().includes("timed out") ? "TIMEOUT" : "INVALID_REQUEST";
+      await sendErrorResult(client, frame, code, message);
     }
     return;
   }

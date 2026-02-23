@@ -81,6 +81,7 @@ describe("configureGatewayForOnboarding", () => {
       "camera.snap",
       "camera.clip",
       "screen.record",
+      "desktop.act",
       "calendar.add",
       "contacts.add",
       "reminders.add",

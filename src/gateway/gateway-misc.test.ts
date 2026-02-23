@@ -349,6 +349,19 @@ describe("resolveNodeCommandAllowlist", () => {
     expect(allow.has("screen.record")).toBe(true);
     expect(allow.has("camera.clip")).toBe(false);
   });
+
+  it("includes desktop snapshot by default on macOS nodes", () => {
+    const allow = resolveNodeCommandAllowlist(
+      {},
+      {
+        platform: "macos 15.0",
+        deviceFamily: "Mac",
+      },
+    );
+
+    expect(allow.has("desktop.snapshot")).toBe(true);
+    expect(allow.has("desktop.act")).toBe(false);
+  });
 });
 
 describe("normalizeVoiceWakeTriggers", () => {

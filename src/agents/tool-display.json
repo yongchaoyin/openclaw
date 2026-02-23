@@ -140,6 +140,14 @@
         "screen_record": {
           "label": "screen record",
           "detailKeys": ["node", "nodeId", "duration", "durationMs", "fps", "screenIndex"]
+        },
+        "desktop_snapshot": {
+          "label": "desktop snapshot",
+          "detailKeys": ["node", "nodeId", "format", "maxWidth", "mainDisplayOnly"]
+        },
+        "desktop_act": {
+          "label": "desktop act",
+          "detailKeys": ["node", "nodeId", "kind", "x", "y", "fromX", "fromY", "toX", "toY"]
         }
       }
     },
