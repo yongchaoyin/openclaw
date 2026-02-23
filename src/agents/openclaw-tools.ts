@@ -19,6 +19,7 @@ import { createSessionsSendTool } from "./tools/sessions-send-tool.js";
 import { createSessionsSpawnTool } from "./tools/sessions-spawn-tool.js";
 import { createSubagentsTool } from "./tools/subagents-tool.js";
 import { createTtsTool } from "./tools/tts-tool.js";
+import { createVisualTool } from "./tools/visual-tool.js";
 import { createWebFetchTool, createWebSearchTool } from "./tools/web-tools.js";
 import { resolveWorkspaceRoot } from "./workspace-dir.js";
 
@@ -102,6 +103,13 @@ export function createOpenClawTools(options?: {
         requireExplicitTarget: options?.requireExplicitMessageTarget,
         requesterSenderId: options?.requesterSenderId ?? undefined,
       });
+  const visualTool = createVisualTool({
+    agentSessionKey: options?.agentSessionKey,
+    config: options?.config,
+    agentDir: options?.agentDir,
+    sandboxBridgeUrl: options?.sandboxBrowserBridgeUrl,
+    allowHostControl: options?.allowHostBrowserControl,
+  });
   const tools: AnyAgentTool[] = [
     createBrowserTool({
       sandboxBridgeUrl: options?.sandboxBrowserBridgeUrl,
@@ -112,6 +120,7 @@ export function createOpenClawTools(options?: {
       agentSessionKey: options?.agentSessionKey,
       config: options?.config,
     }),
+    ...(visualTool ? [visualTool] : []),
     createCronTool({
       agentSessionKey: options?.agentSessionKey,
     }),

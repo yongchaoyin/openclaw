@@ -154,6 +154,57 @@ export type ToolLoopDetectionConfig = {
   detectors?: ToolLoopDetectionDetectorConfig;
 };
 
+export type VisualToolAction =
+  | "click"
+  | "doubleClick"
+  | "rightClick"
+  | "move"
+  | "drag"
+  | "type"
+  | "hotkey"
+  | "scroll"
+  | "wait"
+  | "navigate"
+  | "navigate_back"
+  | "done";
+
+export type VisualToolsConfig = {
+  /** Enable visual loop tool (default: true when configured). */
+  enabled?: boolean;
+  /** Optional model override for visual decisions (provider/model). */
+  model?: string;
+  /** Visual loop upper bound, hard-limited to 25-200 (default: 100). */
+  maxLoopCount?: number;
+  /** Delay between loop steps in milliseconds, hard-limited to 0-3000 (default: 1000). */
+  loopIntervalInMs?: number;
+  context?: {
+    /** Screenshot context window size, hard-limited to 1-10 (default: 5). */
+    maxImages?: number;
+  };
+  retry?: {
+    /** Retry count for model decision failures (default: 5). */
+    model?: number;
+    /** Retry count for screenshot/snapshot failures (default: 5). */
+    screenshot?: number;
+    /** Retry count for action execution failures (default: 1). */
+    execute?: number;
+  };
+  targets?: {
+    /** Allow visual loops to control browser target (default: true). */
+    browser?: boolean;
+    /** Allow visual loops to control desktop target (default: true). */
+    desktop?: boolean;
+  };
+  safety?: {
+    /** Action kinds that require explicit approval before execution. */
+    requireApprovalActions?: VisualToolAction[];
+  };
+  data?: {
+    /** Screenshot upload policy for model context. */
+    screenshotUploadPolicy?: "model" | "none";
+  };
+};
+
 export type SessionsToolsVisibility = "self" | "tree" | "agent" | "all";
 
 export type ToolPolicyConfig = {
@@ -293,6 +344,8 @@ export type AgentToolsConfig = {
   fs?: FsToolsConfig;
   /** Runtime loop detection for repetitive/ stuck tool-call patterns. */
   loopDetection?: ToolLoopDetectionConfig;
+  /** Visual screenshot-decision-action loop controls. */
+  visual?: VisualToolsConfig;
   sandbox?: {
     tools?: {
       allow?: string[];
@@ -555,6 +608,8 @@ export type ToolsConfig = {
   fs?: FsToolsConfig;
   /** Runtime loop detection for repetitive/ stuck tool-call patterns. */
   loopDetection?: ToolLoopDetectionConfig;
+  /** Visual screenshot-decision-action loop controls. */
+  visual?: VisualToolsConfig;
   /** Sub-agent tool policy defaults (deny wins). */
   subagents?: {
     /** Default model selection for spawned sub-agents (string or {primary,fallbacks}). */

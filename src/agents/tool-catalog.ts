@@ -178,6 +178,14 @@ const CORE_TOOL_DEFINITIONS: CoreToolDefinition[] = [
     includeInOpenClawGroup: true,
   },
   {
+    id: "visual",
+    label: "visual",
+    description: "Visual screenshot-action loop",
+    sectionId: "ui",
+    profiles: [],
+    includeInOpenClawGroup: true,
+  },
+  {
     id: "message",
     label: "message",
     description: "Send messages",

@@ -10,6 +10,7 @@ const MUTATING_TOOL_NAMES = new Set([
   "cron",
   "gateway",
   "canvas",
+  "visual",
   "nodes",
   "session_status",
 ]);
@@ -121,6 +122,9 @@ export function isMutatingToolCall(toolName: string, args: unknown): boolean {
     default: {
       if (normalized === "cron" || normalized === "gateway" || normalized === "canvas") {
         return action == null || !READ_ONLY_ACTIONS.has(action);
+      }
+      if (normalized === "visual") {
+        return action == null || action !== "status";
       }
       if (normalized === "nodes") {
         return action == null || action !== "list";

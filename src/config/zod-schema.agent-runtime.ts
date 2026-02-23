@@ -426,6 +426,64 @@ const ToolLoopDetectionSchema = z
   })
   .optional();
 
+const VisualActionSchema = z.enum([
+  "click",
+  "doubleClick",
+  "rightClick",
+  "move",
+  "drag",
+  "type",
+  "hotkey",
+  "scroll",
+  "wait",
+  "navigate",
+  "navigate_back",
+  "done",
+]);
+
+const ToolVisualSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    model: z.string().optional(),
+    maxLoopCount: z.number().int().min(25).max(200).optional(),
+    loopIntervalInMs: z.number().int().min(0).max(3000).optional(),
+    context: z
+      .object({
+        maxImages: z.number().int().min(1).max(10).optional(),
+      })
+      .strict()
+      .optional(),
+    retry: z
+      .object({
+        model: z.number().int().min(0).optional(),
+        screenshot: z.number().int().min(0).optional(),
+        execute: z.number().int().min(0).optional(),
+      })
+      .strict()
+      .optional(),
+    targets: z
+      .object({
+        browser: z.boolean().optional(),
+        desktop: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+    safety: z
+      .object({
+        requireApprovalActions: z.array(VisualActionSchema).optional(),
+      })
+      .strict()
+      .optional(),
+    data: z
+      .object({
+        screenshotUploadPolicy: z.enum(["model", "none"]).optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
+  .optional();
+
 export const AgentSandboxSchema = z
   .object({
     mode: z.union([z.literal("off"), z.literal("non-main"), z.literal("all")]).optional(),
@@ -462,6 +520,7 @@ export const AgentToolsSchema = z
     exec: AgentToolExecSchema,
     fs: ToolFsSchema,
     loopDetection: ToolLoopDetectionSchema,
+    visual: ToolVisualSchema,
     sandbox: z
       .object({
         tools: ToolPolicySchema,
@@ -664,6 +723,7 @@ export const ToolsSchema = z
       .strict()
       .optional(),
     loopDetection: ToolLoopDetectionSchema,
+    visual: ToolVisualSchema,
     message: z
       .object({
         allowCrossContextSend: z.boolean().optional(),

@@ -411,6 +411,31 @@ export const FIELD_HELP: Record<string, string> = {
   "tools.loopDetection.detectors.knownPollNoProgress":
     "Enable known poll tool no-progress loop detection (default: true).",
   "tools.loopDetection.detectors.pingPong": "Enable ping-pong loop detection (default: true).",
+  "tools.visual":
+    "Visual operator loop settings for screenshot-based model decisions and bounded browser/desktop action execution.",
+  "tools.visual.enabled":
+    "Enable the visual tool that runs screenshot -> model decision -> action loops (default: enabled when configured).",
+  "tools.visual.model":
+    "Optional model override for visual decisions (provider/model). Falls back to agents.defaults.imageModel when omitted.",
+  "tools.visual.maxLoopCount":
+    "Maximum visual loop steps per run. Hard-limited to 25-200 (default: 100).",
+  "tools.visual.loopIntervalInMs":
+    "Delay in milliseconds between visual loop steps. Hard-limited to 0-3000 (default: 1000).",
+  "tools.visual.context.maxImages":
+    "Sliding screenshot context window size for visual decisions. Hard-limited to 1-10 (default: 5).",
+  "tools.visual.retry.model":
+    "Retry count for visual model decision failures before the run fails (default: 5).",
+  "tools.visual.retry.screenshot":
+    "Retry count for screenshot/snapshot failures before the run fails (default: 5).",
+  "tools.visual.retry.execute":
+    "Retry count for action execution failures before the run fails (default: 1).",
+  "tools.visual.targets.browser": "Allow visual runs to control browser actions (default: true).",
+  "tools.visual.targets.desktop":
+    "Allow visual runs to control desktop actions via nodes desktop commands (default: true).",
+  "tools.visual.safety.requireApprovalActions":
+    "Visual action kinds that must be explicitly approved before execution. Matching actions fail closed.",
+  "tools.visual.data.screenshotUploadPolicy":
+    'Controls screenshot upload to the decision model: "model" sends images, "none" blocks visual runs.',
   "tools.exec.notifyOnExit":
     "When true (default), backgrounded exec sessions on exit and node exec lifecycle events enqueue a system event and request a heartbeat.",
   "tools.exec.notifyOnExitEmptySuccess":
