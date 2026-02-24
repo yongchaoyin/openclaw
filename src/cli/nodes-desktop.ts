@@ -7,6 +7,9 @@ export type DesktopSnapshotPayload = {
   base64: string;
   width?: number;
   height?: number;
+  screenWidth?: number;
+  screenHeight?: number;
+  scaleFactor?: number;
 };
 
 export function parseDesktopSnapshotPayload(value: unknown): DesktopSnapshotPayload {
@@ -18,11 +21,17 @@ export function parseDesktopSnapshotPayload(value: unknown): DesktopSnapshotPayl
   }
   const width = asNumber(obj.width);
   const height = asNumber(obj.height);
+  const screenWidth = asNumber(obj.screenWidth);
+  const screenHeight = asNumber(obj.screenHeight);
+  const scaleFactor = asNumber(obj.scaleFactor);
   return {
     format,
     base64,
     ...(width !== undefined ? { width } : {}),
     ...(height !== undefined ? { height } : {}),
+    ...(screenWidth !== undefined ? { screenWidth } : {}),
+    ...(screenHeight !== undefined ? { screenHeight } : {}),
+    ...(scaleFactor !== undefined ? { scaleFactor } : {}),
   };
 }
 

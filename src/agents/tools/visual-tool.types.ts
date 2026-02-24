@@ -61,6 +61,7 @@ export type VisualDecision = {
   reason?: string;
   ref?: string;
   selector?: string;
+  coordSpace?: "image" | "screen";
   x?: number;
   y?: number;
   fromX?: number;

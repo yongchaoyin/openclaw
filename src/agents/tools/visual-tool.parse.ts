@@ -100,6 +100,25 @@ export function normalizeButton(value: unknown): "left" | "right" | "middle" | u
   return undefined;
 }
 
+function normalizeCoordSpace(value: unknown): "image" | "screen" | undefined {
+  const normalized = trimToUndefined(value)?.toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized === "image" || normalized === "pixel" || normalized === "pixels") {
+    return "image";
+  }
+  if (
+    normalized === "screen" ||
+    normalized === "logical" ||
+    normalized === "point" ||
+    normalized === "points"
+  ) {
+    return "screen";
+  }
+  return undefined;
+}
+
 export function normalizeDecision(value: unknown): VisualDecision {
   const obj = asRecord(value);
   const rawKind =
@@ -121,6 +140,7 @@ export function normalizeDecision(value: unknown): VisualDecision {
     reason: trimToUndefined(obj.reason),
     ref: trimToUndefined(obj.ref) ?? trimToUndefined(targetObj.ref),
     selector: trimToUndefined(obj.selector) ?? trimToUndefined(targetObj.selector),
+    coordSpace: normalizeCoordSpace(obj.coordSpace ?? obj.coordinateSpace ?? obj.space),
     x: parseNum(obj.x) ?? parseNum(targetObj.x),
     y: parseNum(obj.y) ?? parseNum(targetObj.y),
     fromX: parseNum(obj.fromX),

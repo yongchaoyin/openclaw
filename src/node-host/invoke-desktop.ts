@@ -1058,7 +1058,7 @@ export async function runDesktopSnapshotCommand(paramsJSON?: string | null): Pro
   await ensureDesktopSupported();
   const params = decodeParamsOptional<DesktopSnapshotParams>(paramsJSON);
   const format = normalizeImageFormat(params.format);
-  const maxWidth = positiveOptionalInteger(params.maxWidth, "maxWidth");
+  const requestedMaxWidth = positiveOptionalInteger(params.maxWidth, "maxWidth");
   const qualityRaw = optionalFiniteNumber(params.quality);
   const quality = qualityRaw === undefined ? undefined : Math.max(0.05, Math.min(1, qualityRaw));
   const timeoutMs =
@@ -1072,7 +1072,11 @@ export async function runDesktopSnapshotCommand(paramsJSON?: string | null): Pro
 
   try {
     const captureArgs = ["-x", ...(mainDisplayOnly ? ["-m"] : []), capturePath];
-    const capture = await runProcess("/usr/sbin/screencapture", captureArgs, { timeoutMs });
+    // Run screencapture and screen-info lookup in parallel for speed.
+    const [capture, screenInfo] = await Promise.all([
+      runProcess("/usr/sbin/screencapture", captureArgs, { timeoutMs }),
+      readScreenInfo(timeoutMs),
+    ]);
     if (capture.exitCode !== 0) {
       throw describeProcessFailure("desktop snapshot", capture, {
         fallbackMessage:
@@ -1086,11 +1090,24 @@ export async function runDesktopSnapshotCommand(paramsJSON?: string | null): Pro
         "UNAVAILABLE: desktop snapshot is empty (grant Screen Recording permission and retry)",
       );
     }
+    const autoMaxWidth =
+      mainDisplayOnly &&
+      typeof screenInfo.screenWidth === "number" &&
+      typeof screenInfo.scaleFactor === "number" &&
+      screenInfo.scaleFactor > 1.01
+        ? screenInfo.screenWidth
+        : undefined;
+    const effectiveMaxWidth =
+      typeof requestedMaxWidth === "number" && typeof autoMaxWidth === "number"
+        ? Math.min(requestedMaxWidth, autoMaxWidth)
+        : (requestedMaxWidth ?? autoMaxWidth);
 
-    if (maxWidth) {
-      const resize = await runProcess("/usr/bin/sips", ["-Z", String(maxWidth), capturePath], {
-        timeoutMs,
-      });
+    if (effectiveMaxWidth) {
+      const resize = await runProcess(
+        "/usr/bin/sips",
+        ["-Z", String(effectiveMaxWidth), capturePath],
+        { timeoutMs },
+      );
       if (resize.exitCode !== 0) {
         throw describeProcessFailure("desktop snapshot resize", resize);
       }
@@ -1125,10 +1142,7 @@ export async function runDesktopSnapshotCommand(paramsJSON?: string | null): Pro
       );
     }
 
-    const [size, screenInfo] = await Promise.all([
-      readImageSize(finalPath, timeoutMs),
-      readScreenInfo(timeoutMs),
-    ]);
+    const size = await readImageSize(finalPath, timeoutMs);
     return JSON.stringify({
       format,
       base64: data.toString("base64"),

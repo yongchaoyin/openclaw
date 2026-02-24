@@ -553,6 +553,9 @@ export function createNodesTool(options?: {
                 format: payload.format,
                 width: payload.width,
                 height: payload.height,
+                screenWidth: payload.screenWidth,
+                screenHeight: payload.screenHeight,
+                scaleFactor: payload.scaleFactor,
               },
             };
             return await sanitizeToolResultImages(

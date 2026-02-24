@@ -21,6 +21,7 @@ import type {
   VisualModelResponse,
   VisualRunRecord,
   VisualRuntimeConfig,
+  VisualObservation,
 } from "./visual-tool.types.js";
 import {
   MAX_DECISION_TEXT,
@@ -52,16 +53,22 @@ export function buildVisualModelPrompt(input: VisualDecisionPromptInput): string
     desktopRules.push(
       "Desktop actions rely on screen coordinates (logical pixels).",
       "Use x/y for clicks and move; fromX/fromY/toX/toY for drag.",
+      'Set coordSpace="screen" when using accessibility bounds.',
+      'Set coordSpace="image" when estimating from the screenshot; the runtime will map image pixels to screen coordinates.',
     );
     // Include screen resolution info when available so the VLM can reason about coordinates
     const screenW = typeof meta.screenWidth === "number" ? meta.screenWidth : undefined;
     const screenH = typeof meta.screenHeight === "number" ? meta.screenHeight : undefined;
     const scale = typeof meta.scaleFactor === "number" ? meta.scaleFactor : undefined;
+    const imageW = typeof meta.width === "number" ? meta.width : undefined;
+    const imageH = typeof meta.height === "number" ? meta.height : undefined;
+    if (imageW && imageH) {
+      desktopRules.push(`Screenshot pixel size: ${imageW}x${imageH}.`);
+    }
     if (screenW && screenH) {
       desktopRules.push(
         `Screen logical size: ${screenW}x${screenH}${scale ? ` (scale factor: ${scale}x)` : ""}.`,
       );
-      desktopRules.push("The screenshot and coordinates use logical pixels (not physical).");
     }
     if (snapshotText) {
       desktopRules.push(
@@ -94,8 +101,94 @@ export function buildVisualModelPrompt(input: VisualDecisionPromptInput): string
     snapshotText || "(none)",
     "",
     "JSON schema:",
-    `{"kind":"<allowed>","reason":"<short reason>","ref":"<optional>","selector":"<optional>","x":0,"y":0,"fromX":0,"fromY":0,"toX":0,"toY":0,"startRef":"<optional>","endRef":"<optional>","text":"<optional>","keys":["<optional>"],"deltaX":0,"deltaY":0,"ms":250,"button":"left|right|middle","url":"https://..."}`,
+    `{"kind":"<allowed>","reason":"<short reason>","coordSpace":"image|screen","ref":"<optional>","selector":"<optional>","x":0,"y":0,"fromX":0,"fromY":0,"toX":0,"toY":0,"startRef":"<optional>","endRef":"<optional>","text":"<optional>","keys":["<optional>"],"deltaX":0,"deltaY":0,"ms":250,"button":"left|right|middle","url":"https://..."}`,
   ].join("\n");
+}
+
+function scaleCoord(value: number | undefined, scale: number, max?: number): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return value;
+  }
+  const scaled = value * scale;
+  if (typeof max === "number" && Number.isFinite(max)) {
+    const clamped = Math.min(Math.max(0, scaled), Math.max(0, max - 1));
+    return clamped;
+  }
+  return scaled;
+}
+
+function normalizeDesktopDecisionForExecution(
+  decision: VisualDecision,
+  observation: VisualObservation,
+): VisualDecision {
+  if (
+    decision.kind === "navigate" ||
+    decision.kind === "navigate_back" ||
+    decision.kind === "scroll" ||
+    decision.kind === "hotkey" ||
+    decision.kind === "type" ||
+    decision.kind === "wait" ||
+    decision.kind === "done"
+  ) {
+    return decision;
+  }
+
+  const meta = observation.meta ?? {};
+  const imageW = typeof meta.width === "number" ? meta.width : undefined;
+  const imageH = typeof meta.height === "number" ? meta.height : undefined;
+  const screenW = typeof meta.screenWidth === "number" ? meta.screenWidth : undefined;
+  const screenH = typeof meta.screenHeight === "number" ? meta.screenHeight : undefined;
+
+  if (!imageW || !imageH || !screenW || !screenH) {
+    return decision;
+  }
+  if (decision.coordSpace === "screen") {
+    return decision;
+  }
+
+  const scaleX = screenW / imageW;
+  const scaleY = screenH / imageH;
+  if (!Number.isFinite(scaleX) || !Number.isFinite(scaleY)) {
+    return decision;
+  }
+  if (Math.abs(scaleX - 1) < 0.001 && Math.abs(scaleY - 1) < 0.001) {
+    return decision;
+  }
+
+  // Heuristic: when imageW < screenW (e.g. user set a small maxWidth), the VLM may
+  // have taken coordinates directly from the accessibility tree (screen space) instead
+  // of estimating from the image. Detect this by checking if any coordinate exceeds
+  // the image bounds but still falls within screen bounds — if so, treat as screen coords.
+  if (imageW < screenW || imageH < screenH) {
+    const coordPairs: [number | undefined, number, number][] = [
+      [decision.x, imageW, screenW],
+      [decision.y, imageH, screenH],
+      [decision.fromX, imageW, screenW],
+      [decision.fromY, imageH, screenH],
+      [decision.toX, imageW, screenW],
+      [decision.toY, imageH, screenH],
+    ];
+    const hasCoordBeyondImage = coordPairs.some(
+      ([v, imgMax, _scrMax]) => typeof v === "number" && v > imgMax,
+    );
+    const allCoordsWithinScreen = coordPairs.every(
+      ([v, _imgMax, scrMax]) => typeof v !== "number" || (v >= 0 && v <= scrMax),
+    );
+    if (hasCoordBeyondImage && allCoordsWithinScreen) {
+      return { ...decision, coordSpace: "screen" };
+    }
+  }
+
+  return {
+    ...decision,
+    coordSpace: "screen",
+    x: scaleCoord(decision.x, scaleX, screenW),
+    y: scaleCoord(decision.y, scaleY, screenH),
+    fromX: scaleCoord(decision.fromX, scaleX, screenW),
+    fromY: scaleCoord(decision.fromY, scaleY, screenH),
+    toX: scaleCoord(decision.toX, scaleX, screenW),
+    toY: scaleCoord(decision.toY, scaleY, screenH),
+  };
 }
 
 export async function runVisualModelDefault(input: {
@@ -392,6 +485,10 @@ export async function runVisualLoop(params: {
         };
         trace.outcome = "executed";
       } else {
+        const decisionForExecution =
+          params.settings.target === "desktop"
+            ? normalizeDesktopDecisionForExecution(decision, observed.value)
+            : decision;
         const executed = await withRetries({
           label: "visual execute",
           retries: params.settings.retryExecute,
@@ -399,7 +496,7 @@ export async function runVisualLoop(params: {
             if (params.settings.target === "browser") {
               return await executeBrowserDecision({
                 executeBrowser: params.executeBrowser,
-                decision,
+                decision: decisionForExecution,
                 targetId: params.settings.targetId,
                 profile: params.settings.profile,
                 browserTarget: params.settings.browserTarget,
@@ -413,7 +510,7 @@ export async function runVisualLoop(params: {
             return await executeDesktopDecision({
               executeNodes: params.executeNodes,
               node,
-              decision,
+              decision: decisionForExecution,
             });
           },
         });
