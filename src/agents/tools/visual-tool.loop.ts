@@ -53,8 +53,6 @@ export function buildVisualModelPrompt(input: VisualDecisionPromptInput): string
     desktopRules.push(
       "Desktop actions rely on screen coordinates (logical pixels).",
       "Use x/y for clicks and move; fromX/fromY/toX/toY for drag.",
-      'Set coordSpace="screen" when using accessibility bounds.',
-      'Set coordSpace="image" when estimating from the screenshot; the runtime will map image pixels to screen coordinates.',
     );
     // Include screen resolution info when available so the VLM can reason about coordinates
     const screenW = typeof meta.screenWidth === "number" ? meta.screenWidth : undefined;
@@ -73,9 +71,10 @@ export function buildVisualModelPrompt(input: VisualDecisionPromptInput): string
     if (snapshotText) {
       desktopRules.push(
         "A UI element tree from the accessibility API is provided below.",
-        'Each element shows [role] "label" (x, y, width, height).',
-        "When an element matches your target, use the center of its bounds as coordinates.",
-        "When no matching element exists, estimate coordinates from the screenshot.",
+        'Each actionable element has a [ref=dN] tag and shows [role] "label" (x, y, width, height) [ref=dN].',
+        "IMPORTANT: When a [ref=dN] element matches your target, return that ref in the JSON. The runtime will click its exact center.",
+        'Example: {"kind":"click","ref":"d5","reason":"click the OK button"}',
+        "Only estimate x/y from the screenshot when NO matching ref element exists.",
       );
     }
   }
@@ -101,7 +100,7 @@ export function buildVisualModelPrompt(input: VisualDecisionPromptInput): string
     snapshotText || "(none)",
     "",
     "JSON schema:",
-    `{"kind":"<allowed>","reason":"<short reason>","coordSpace":"image|screen","ref":"<optional>","selector":"<optional>","x":0,"y":0,"fromX":0,"fromY":0,"toX":0,"toY":0,"startRef":"<optional>","endRef":"<optional>","text":"<optional>","keys":["<optional>"],"deltaX":0,"deltaY":0,"ms":250,"button":"left|right|middle","url":"https://..."}`,
+    `{"kind":"<allowed>","reason":"<short reason>","ref":"<dN from accessibility tree, preferred>","x":0,"y":0,"fromX":0,"fromY":0,"toX":0,"toY":0,"startRef":"<optional>","endRef":"<optional>","text":"<optional>","keys":["<optional>"],"deltaX":0,"deltaY":0,"ms":250,"button":"left|right|middle","url":"https://..."}`,
   ].join("\n");
 }
 
@@ -121,6 +120,7 @@ function normalizeDesktopDecisionForExecution(
   decision: VisualDecision,
   observation: VisualObservation,
 ): VisualDecision {
+  // Non-coordinate actions pass through unchanged
   if (
     decision.kind === "navigate" ||
     decision.kind === "navigate_back" ||
@@ -134,6 +134,27 @@ function normalizeDesktopDecisionForExecution(
   }
 
   const meta = observation.meta ?? {};
+
+  // --- Priority 1: resolve ref to precise screen coordinates from accessibility tree ---
+  // This is the most reliable path — like browser mode's ref system.
+  const ref = decision.ref?.trim();
+  if (ref) {
+    const axRefs = Array.isArray(meta.axRefs) ? meta.axRefs : [];
+    const match = axRefs.find(
+      (r: unknown) =>
+        r && typeof r === "object" && "ref" in r && (r as { ref: string }).ref === ref,
+    ) as { ref: string; centerX: number; centerY: number } | undefined;
+    if (match && typeof match.centerX === "number" && typeof match.centerY === "number") {
+      return {
+        ...decision,
+        coordSpace: "screen",
+        x: match.centerX,
+        y: match.centerY,
+      };
+    }
+  }
+
+  // --- Priority 2: scale image coordinates to screen coordinates ---
   const imageW = typeof meta.width === "number" ? meta.width : undefined;
   const imageH = typeof meta.height === "number" ? meta.height : undefined;
   const screenW = typeof meta.screenWidth === "number" ? meta.screenWidth : undefined;

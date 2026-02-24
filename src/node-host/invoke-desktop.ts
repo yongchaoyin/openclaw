@@ -1206,27 +1206,65 @@ export async function runDesktopActCommand(paramsJSON?: string | null): Promise<
   return JSON.stringify(payload);
 }
 
-/** Format accessibility elements into an indented text tree (similar to browser snapshot). */
-export function formatAccessibilitySnapshot(result: DesktopAccessibilityResult): string {
+/** A ref-to-bounds mapping entry for a desktop accessibility element. */
+export type DesktopAxRef = {
+  ref: string;
+  role: string;
+  label: string;
+  bounds: { x: number; y: number; w: number; h: number };
+  centerX: number;
+  centerY: number;
+};
+
+/**
+ * Format accessibility elements into an indented text tree (similar to browser snapshot).
+ * Each actionable element with bounds gets a `[ref=dN]` tag so the VLM can reference it
+ * by ID instead of estimating coordinates.
+ * Returns both the formatted text and the ref-to-bounds mapping.
+ */
+export function formatAccessibilitySnapshot(result: DesktopAccessibilityResult): {
+  text: string;
+  axRefs: DesktopAxRef[];
+} {
   if (!result.ok || result.elements.length === 0) {
-    return "";
+    return { text: "", axRefs: [] };
   }
   const lines: string[] = [];
+  const axRefs: DesktopAxRef[] = [];
+  let refIndex = 1;
   for (const el of result.elements) {
     const indent = "  ".repeat(el.depth);
     const label = el.title || el.value || "";
+    const disabledStr = el.enabled === false ? " [disabled]" : "";
+    const roleName = el.roleDescription || el.role;
+
+    // Assign a ref to elements that have bounds and are potentially actionable
+    const hasUsableBounds = el.bounds && el.bounds.w > 0 && el.bounds.h > 0 && el.enabled !== false;
+    const ref = hasUsableBounds ? `d${refIndex++}` : undefined;
+
     const boundsStr = el.bounds
       ? ` (${el.bounds.x}, ${el.bounds.y}, ${el.bounds.w}, ${el.bounds.h})`
       : "";
-    const disabledStr = el.enabled === false ? " [disabled]" : "";
-    const roleName = el.roleDescription || el.role;
+    const refStr = ref ? ` [ref=${ref}]` : "";
+
     if (label) {
-      lines.push(`${indent}[${roleName}] "${label}"${boundsStr}${disabledStr}`);
+      lines.push(`${indent}[${roleName}] "${label}"${boundsStr}${refStr}${disabledStr}`);
     } else {
-      lines.push(`${indent}[${roleName}]${boundsStr}${disabledStr}`);
+      lines.push(`${indent}[${roleName}]${boundsStr}${refStr}${disabledStr}`);
+    }
+
+    if (ref && el.bounds) {
+      axRefs.push({
+        ref,
+        role: roleName,
+        label,
+        bounds: el.bounds,
+        centerX: Math.round(el.bounds.x + el.bounds.w / 2),
+        centerY: Math.round(el.bounds.y + el.bounds.h / 2),
+      });
     }
   }
-  return lines.join("\n");
+  return { text: lines.join("\n"), axRefs };
 }
 
 export async function runDesktopAccessibilitySnapshotCommand(
@@ -1260,9 +1298,10 @@ export async function runDesktopAccessibilitySnapshotCommand(
     return JSON.stringify({ ok: false, error: "invalid JSON output", elements: [], text: "" });
   }
 
-  const text = formatAccessibilitySnapshot(parsed);
+  const { text, axRefs } = formatAccessibilitySnapshot(parsed);
   return JSON.stringify({
     ...parsed,
     text,
+    axRefs,
   });
 }

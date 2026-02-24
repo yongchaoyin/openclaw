@@ -116,7 +116,8 @@ describe("buildVisualModelPrompt", () => {
     expect(prompt).toContain("scale factor: 2x");
     expect(prompt).toContain("logical pixels");
     expect(prompt).toContain("accessibility API");
-    expect(prompt).toContain("center of its bounds");
+    expect(prompt).toContain("[ref=dN]");
+    expect(prompt).toContain("click its exact center");
     expect(prompt).toContain("UI elements (accessibility tree):");
     expect(prompt).toContain('[Button] "System Settings" (120, 45, 80, 24)');
     // Desktop does not include navigate/navigate_back in allowed actions

@@ -93,10 +93,14 @@ export async function observeDesktop(params: {
 
   // Build snapshot text from accessibility tree if available
   let snapshotText = "";
+  let axRefs: unknown[] | undefined;
   if (accessibilityResult) {
     const axDetails = asRecord(accessibilityResult.details);
     if (typeof axDetails.text === "string") {
       snapshotText = axDetails.text;
+    }
+    if (Array.isArray(axDetails.axRefs) && axDetails.axRefs.length > 0) {
+      axRefs = axDetails.axRefs;
     }
   }
 
@@ -112,6 +116,7 @@ export async function observeDesktop(params: {
       ...(typeof details.screenHeight === "number" ? { screenHeight: details.screenHeight } : {}),
       ...(typeof details.scaleFactor === "number" ? { scaleFactor: details.scaleFactor } : {}),
       ...(typeof details.format === "string" ? { format: details.format } : {}),
+      ...(axRefs ? { axRefs } : {}),
     },
   };
 }
