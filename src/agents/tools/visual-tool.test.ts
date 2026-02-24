@@ -223,9 +223,73 @@ describe("visual tool", () => {
     expect(imageCounts).toEqual([1, 2, 2]);
   });
 
-  it("requires node for desktop target", async () => {
+  it("auto-selects a connected desktop node when missing", async () => {
+    const executeNodes = vi.fn(async (args: Record<string, unknown>) => {
+      if (args.action === "status") {
+        return jsonResult({
+          nodes: [
+            {
+              nodeId: "mac-001",
+              displayName: "My Mac",
+              connected: true,
+              caps: ["desktop"],
+            },
+          ],
+        });
+      }
+      if (args.action === "desktop_snapshot") {
+        return snapshotResult("desktop snapshot");
+      }
+      if (args.action === "desktop_act") {
+        return jsonResult({ ok: true });
+      }
+      throw new Error(`unexpected nodes action: ${String(args.action)}`);
+    });
+    const runVisualModel = vi.fn(async () => ({
+      text: JSON.stringify({ kind: "done" }),
+      provider: "openai",
+      model: "gpt-5-mini",
+      attempts: [],
+    }));
+    const tool = createTool({ executeNodes, runVisualModel });
+
+    const result = await tool.execute("call-5", {
+      action: "run",
+      target: "desktop",
+      goal: "desktop without node",
+    });
+
+    expect((result.details as { status: string }).status).toBe("completed");
+    expect(executeNodes).toHaveBeenCalledWith(expect.objectContaining({ action: "status" }));
+    expect(executeNodes).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "desktop_snapshot", node: "mac-001" }),
+    );
+  });
+
+  it("errors with candidate list when desktop node is missing", async () => {
+    const executeNodes = vi.fn(async (args: Record<string, unknown>) => {
+      if (args.action === "status") {
+        return jsonResult({
+          nodes: [
+            {
+              nodeId: "mac-001",
+              displayName: "My Mac",
+              connected: false,
+              caps: ["desktop"],
+            },
+            {
+              nodeId: "mac-002",
+              displayName: "Backup Mac",
+              connected: false,
+              caps: ["desktop"],
+            },
+          ],
+        });
+      }
+      throw new Error(`unexpected nodes action: ${String(args.action)}`);
+    });
     const tool = createTool({
-      executeBrowser: vi.fn(async () => snapshotResult()),
+      executeNodes,
       runVisualModel: vi.fn(async () => ({
         text: JSON.stringify({ kind: "done" }),
         provider: "openai",
@@ -235,11 +299,11 @@ describe("visual tool", () => {
     });
 
     await expect(
-      tool.execute("call-5", {
+      tool.execute("call-6", {
         action: "run",
         target: "desktop",
         goal: "desktop without node",
       }),
-    ).rejects.toThrow("visual desktop target requires node");
+    ).rejects.toThrow("visual desktop target requires node (available nodes:");
   });
 });

@@ -84,6 +84,9 @@ describe("loadControlUiBootstrapConfig", () => {
   });
 
   it("hydrates gateway token when missing", async () => {
+    const expectedGatewayUrl = `${
+      window.location.protocol === "https:" ? "wss" : "ws"
+    }://${window.location.host}`;
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -92,6 +95,7 @@ describe("loadControlUiBootstrapConfig", () => {
         assistantAvatar: "O",
         assistantAgentId: "main",
         gatewayToken: "local-token",
+        gatewayTokenSource: "loopback",
       }),
     });
     vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
@@ -103,7 +107,7 @@ describe("loadControlUiBootstrapConfig", () => {
       assistantAvatar: null,
       assistantAgentId: null,
       settings: {
-        gatewayUrl: "ws://127.0.0.1:19001",
+        gatewayUrl: expectedGatewayUrl,
         token: "",
         sessionKey: "main",
         lastActiveSessionKey: "main",
@@ -122,6 +126,7 @@ describe("loadControlUiBootstrapConfig", () => {
     expect(applied).toBe(true);
     expect(applySettings).toHaveBeenCalledWith({
       ...state.settings,
+      gatewayUrl: expectedGatewayUrl,
       token: "local-token",
     });
 

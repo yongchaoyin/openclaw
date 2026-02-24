@@ -15,22 +15,45 @@ export type ControlUiBootstrapState = {
   applySettings?: (next: UiSettings) => void;
 };
 
+function resolveDefaultGatewayUrl(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const proto = window.location.protocol === "https:" ? "wss" : "ws";
+  return `${proto}://${window.location.host}`;
+}
+
 function maybeApplyGatewayToken(
   state: ControlUiBootstrapState,
   token: string | undefined,
+  source: string | undefined,
 ): boolean {
   const nextToken = token?.trim();
-  if (!nextToken) {
-    return false;
-  }
   const settings = state.settings;
-  if (!settings || settings.token.trim()) {
+  if (!settings) {
     return false;
   }
   if (typeof state.applySettings !== "function") {
     return false;
   }
-  state.applySettings({ ...settings, token: nextToken });
+  let nextSettings = settings;
+  let changed = false;
+  if (nextToken && nextToken !== settings.token.trim()) {
+    nextSettings = { ...nextSettings, token: nextToken };
+    changed = true;
+  }
+  if (source === "loopback") {
+    const expectedGatewayUrl = resolveDefaultGatewayUrl();
+    const currentUrl = nextSettings.gatewayUrl.trim();
+    if (expectedGatewayUrl && (!currentUrl || currentUrl !== expectedGatewayUrl)) {
+      nextSettings = { ...nextSettings, gatewayUrl: expectedGatewayUrl };
+      changed = true;
+    }
+  }
+  if (!changed) {
+    return false;
+  }
+  state.applySettings(nextSettings);
   return true;
 }
 
@@ -67,7 +90,7 @@ export async function loadControlUiBootstrapConfig(
     state.assistantName = normalized.name;
     state.assistantAvatar = normalized.avatar;
     state.assistantAgentId = normalized.agentId ?? null;
-    return maybeApplyGatewayToken(state, parsed.gatewayToken);
+    return maybeApplyGatewayToken(state, parsed.gatewayToken, parsed.gatewayTokenSource);
   } catch {
     // Ignore bootstrap failures; UI will update identity after connecting.
     return false;

@@ -4,6 +4,8 @@ import { type Api, type Context, complete, type Model } from "@mariozechner/pi-a
 import { Type } from "@sinclair/typebox";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { VisualToolsConfig } from "../../config/types.tools.js";
+import { parseNodeList } from "../../shared/node-list-parse.js";
+import type { NodeListNode } from "../../shared/node-list-types.js";
 import { resolveAgentConfig, resolveSessionAgentId } from "../agent-scope.js";
 import { minimaxUnderstandImage } from "../minimax-vlm.js";
 import { getApiKeyForModel, requireApiKey } from "../model-auth.js";
@@ -881,6 +883,91 @@ function trimRunsStore() {
   }
 }
 
+function formatNodeLabel(node: NodeListNode): string {
+  const name = typeof node.displayName === "string" ? node.displayName.trim() : "";
+  const base = name || node.nodeId;
+  const status =
+    node.connected === true ? "online" : node.connected === false ? "offline" : "unknown";
+  return `${base} (${status})`;
+}
+
+function supportsDesktopNode(node: NodeListNode): boolean {
+  const caps = Array.isArray(node.caps) ? node.caps : [];
+  const commands = Array.isArray(node.commands) ? node.commands : [];
+  return (
+    caps.includes("desktop") ||
+    commands.includes("desktop.snapshot") ||
+    commands.includes("desktop.act")
+  );
+}
+
+function pickDesktopNode(nodes: NodeListNode[]): NodeListNode | null {
+  const desktopNodes = nodes.filter((node) => supportsDesktopNode(node));
+  if (desktopNodes.length === 0) {
+    return null;
+  }
+
+  const connected = desktopNodes.filter((node) => node.connected);
+  const connectedCandidates = connected.length > 0 ? connected : desktopNodes;
+  if (connectedCandidates.length === 1) {
+    return connectedCandidates[0];
+  }
+
+  const local = connectedCandidates.filter((node) => {
+    const platform = typeof node.platform === "string" ? node.platform.toLowerCase() : "";
+    return (
+      platform === "darwin" ||
+      platform.startsWith("mac") ||
+      (typeof node.nodeId === "string" && node.nodeId.startsWith("mac-"))
+    );
+  });
+  if (local.length === 1) {
+    return local[0];
+  }
+
+  return null;
+}
+
+function buildDesktopNodeMissingMessage(nodes: NodeListNode[]): string {
+  if (nodes.length === 0) {
+    return "visual desktop target requires node (no nodes connected)";
+  }
+
+  const desktopNodes = nodes.filter((node) => supportsDesktopNode(node));
+  if (desktopNodes.length === 0) {
+    return "visual desktop target requires node (no desktop-capable nodes connected)";
+  }
+
+  const connected = desktopNodes.filter((node) => node.connected);
+  const candidates = connected.length > 0 ? connected : desktopNodes;
+  const labels = candidates.map(formatNodeLabel).filter(Boolean);
+  if (labels.length === 0) {
+    return "visual desktop target requires node";
+  }
+  return `visual desktop target requires node (available nodes: ${labels.join(", ")})`;
+}
+
+async function ensureDesktopNode(params: {
+  settings: VisualLoopSettings;
+  executeNodes: (args: Record<string, unknown>) => Promise<AgentToolResult<unknown>>;
+}): Promise<VisualLoopSettings> {
+  if (params.settings.target !== "desktop") {
+    return params.settings;
+  }
+  const explicit = params.settings.node?.trim();
+  if (explicit) {
+    return params.settings;
+  }
+
+  const status = await params.executeNodes({ action: "status" });
+  const nodes = parseNodeList(status.details);
+  const picked = pickDesktopNode(nodes);
+  if (picked) {
+    return { ...params.settings, node: picked.nodeId };
+  }
+  throw new Error(buildDesktopNodeMissingMessage(nodes));
+}
+
 async function observeBrowser(params: {
   executeBrowser: (args: Record<string, unknown>) => Promise<AgentToolResult<unknown>>;
   targetId?: string;
@@ -1291,7 +1378,7 @@ async function runVisualLoop(params: {
           }
           const node = params.settings.node?.trim();
           if (!node) {
-            throw new Error("desktop visual target requires node");
+            throw new Error("visual desktop target requires node");
           }
           return await observeDesktop({
             executeNodes: params.executeNodes,
@@ -1382,7 +1469,7 @@ async function runVisualLoop(params: {
             }
             const node = params.settings.node?.trim();
             if (!node) {
-              throw new Error("desktop visual target requires node");
+              throw new Error("visual desktop target requires node");
             }
             return await executeDesktopDecision({
               executeNodes: params.executeNodes,
@@ -1557,7 +1644,7 @@ export function createVisualTool(
 
       ensureImageUploadsEnabled(runtime);
       const defaultRunId = createRunId();
-      const settings = resolveLoopSettings(
+      let settings = resolveLoopSettings(
         {
           args: params,
           runtime,
@@ -1565,9 +1652,7 @@ export function createVisualTool(
         defaultRunId,
       );
       ensureTargetAllowed(settings.target, runtime);
-      if (settings.target === "desktop" && !settings.node?.trim()) {
-        throw new Error("visual desktop target requires node");
-      }
+      settings = await ensureDesktopNode({ settings, executeNodes });
 
       const existing = visualRuns.get(settings.runId);
       if (existing?.status === "running") {
