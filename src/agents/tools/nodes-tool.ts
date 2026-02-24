@@ -50,6 +50,13 @@ const NODES_TOOL_ACTIONS = [
   "invoke",
 ] as const;
 
+/** Actions exposed to the outer agent when the visual tool is enabled.
+ *  desktop_act is hidden because the visual tool handles desktop actions
+ *  internally with its own screenshot→VLM→execute loop. */
+const NODES_TOOL_ACTIONS_WITHOUT_DESKTOP_ACT = NODES_TOOL_ACTIONS.filter(
+  (a) => a !== "desktop_act",
+);
+
 const NOTIFY_PRIORITIES = ["passive", "active", "timeSensitive"] as const;
 const NOTIFY_DELIVERIES = ["system", "overlay", "auto"] as const;
 const CAMERA_FACING = ["front", "back", "both"] as const;
@@ -84,6 +91,72 @@ function extractPairingRequestId(message: string): string | null {
 }
 
 // Flattened schema: runtime validates per-action requirements.
+// When visual tool is enabled, we use a restricted schema that hides desktop_act.
+function buildNodesToolSchema(hideDesktopAct: boolean) {
+  const actions = hideDesktopAct ? NODES_TOOL_ACTIONS_WITHOUT_DESKTOP_ACT : NODES_TOOL_ACTIONS;
+  return Type.Object({
+    action: stringEnum(actions as unknown as readonly string[]),
+    gatewayUrl: Type.Optional(Type.String()),
+    gatewayToken: Type.Optional(Type.String()),
+    timeoutMs: Type.Optional(Type.Number()),
+    node: Type.Optional(Type.String()),
+    requestId: Type.Optional(Type.String()),
+    // notify
+    title: Type.Optional(Type.String()),
+    body: Type.Optional(Type.String()),
+    sound: Type.Optional(Type.String()),
+    priority: optionalStringEnum(NOTIFY_PRIORITIES),
+    delivery: optionalStringEnum(NOTIFY_DELIVERIES),
+    // camera_snap / camera_clip
+    facing: optionalStringEnum(CAMERA_FACING, {
+      description: "camera_snap: front/back/both; camera_clip: front/back only.",
+    }),
+    maxWidth: Type.Optional(Type.Number()),
+    quality: Type.Optional(Type.Number()),
+    delayMs: Type.Optional(Type.Number()),
+    deviceId: Type.Optional(Type.String()),
+    duration: Type.Optional(Type.String()),
+    durationMs: Type.Optional(Type.Number()),
+    includeAudio: Type.Optional(Type.Boolean()),
+    // screen_record
+    fps: Type.Optional(Type.Number()),
+    screenIndex: Type.Optional(Type.Number()),
+    outPath: Type.Optional(Type.String()),
+    // desktop_snapshot
+    format: optionalStringEnum(DESKTOP_SNAPSHOT_FORMAT),
+    mainDisplayOnly: Type.Optional(Type.Boolean()),
+    // desktop_act (still accepted at runtime even when hidden from schema)
+    kind: optionalStringEnum(DESKTOP_ACT_KIND),
+    x: Type.Optional(Type.Number()),
+    y: Type.Optional(Type.Number()),
+    fromX: Type.Optional(Type.Number()),
+    fromY: Type.Optional(Type.Number()),
+    toX: Type.Optional(Type.Number()),
+    toY: Type.Optional(Type.Number()),
+    durationMsForAct: Type.Optional(Type.Number()),
+    deltaX: Type.Optional(Type.Number()),
+    deltaY: Type.Optional(Type.Number()),
+    text: Type.Optional(Type.String()),
+    keys: Type.Optional(Type.Array(Type.String())),
+    waitMs: Type.Optional(Type.Number()),
+    button: optionalStringEnum(DESKTOP_MOUSE_BUTTON),
+    // location_get
+    maxAgeMs: Type.Optional(Type.Number()),
+    locationTimeoutMs: Type.Optional(Type.Number()),
+    desiredAccuracy: optionalStringEnum(LOCATION_ACCURACY),
+    // run
+    command: Type.Optional(Type.Array(Type.String())),
+    cwd: Type.Optional(Type.String()),
+    env: Type.Optional(Type.Array(Type.String())),
+    commandTimeoutMs: Type.Optional(Type.Number()),
+    invokeTimeoutMs: Type.Optional(Type.Number()),
+    needsScreenRecording: Type.Optional(Type.Boolean()),
+    // invoke
+    invokeCommand: Type.Optional(Type.String()),
+    invokeParamsJson: Type.Optional(Type.String()),
+  });
+}
+
 const NodesToolSchema = Type.Object({
   action: stringEnum(NODES_TOOL_ACTIONS),
   gatewayUrl: Type.Optional(Type.String()),
@@ -149,6 +222,9 @@ const NodesToolSchema = Type.Object({
 export function createNodesTool(options?: {
   agentSessionKey?: string;
   config?: OpenClawConfig;
+  /** When the visual tool is enabled, hide desktop_act from the schema so the
+   *  outer agent uses the visual autonomous loop instead of direct desktop_act calls. */
+  hideDesktopAct?: boolean;
 }): AnyAgentTool {
   const sessionKey = options?.agentSessionKey?.trim() || undefined;
   const agentId = resolveSessionAgentId({
@@ -156,12 +232,16 @@ export function createNodesTool(options?: {
     config: options?.config,
   });
   const imageSanitization = resolveImageSanitizationLimits(options?.config);
+  const hideDesktopAct = options?.hideDesktopAct === true;
+  const schema = hideDesktopAct ? buildNodesToolSchema(true) : NodesToolSchema;
+  const description = hideDesktopAct
+    ? "Discover and control paired nodes (status/describe/pairing/notify/camera/screen/location/run/invoke). For desktop GUI tasks (open apps, click buttons, navigate menus), use the `visual` tool instead."
+    : "Discover and control paired nodes (status/describe/pairing/notify/camera/screen/desktop/location/run/invoke).";
   return {
     label: "Nodes",
     name: "nodes",
-    description:
-      "Discover and control paired nodes (status/describe/pairing/notify/camera/screen/desktop/location/run/invoke).",
-    parameters: NodesToolSchema,
+    description,
+    parameters: schema,
     execute: async (_toolCallId, args) => {
       const params = args as Record<string, unknown>;
       const action = readStringParam(params, "action", { required: true });

@@ -119,6 +119,9 @@ export function createOpenClawTools(options?: {
     createNodesTool({
       agentSessionKey: options?.agentSessionKey,
       config: options?.config,
+      // When visual tool is enabled, hide desktop_act from nodes schema so the
+      // agent uses the visual autonomous loop instead of calling desktop_act directly.
+      hideDesktopAct: visualTool != null,
     }),
     ...(visualTool ? [visualTool] : []),
     createCronTool({

@@ -21,8 +21,10 @@ import {
 import { sanitizeHostExecEnv } from "../infra/host-env-security.js";
 import { runBrowserProxyCommand } from "./invoke-browser.js";
 import {
+  DESKTOP_ACCESSIBILITY_SNAPSHOT_COMMAND,
   DESKTOP_ACT_COMMAND,
   DESKTOP_SNAPSHOT_COMMAND,
+  runDesktopAccessibilitySnapshotCommand,
   runDesktopActCommand,
   runDesktopSnapshotCommand,
 } from "./invoke-desktop.js";
@@ -441,6 +443,18 @@ export async function handleInvoke(
   if (command === DESKTOP_ACT_COMMAND) {
     try {
       const payload = await runDesktopActCommand(frame.paramsJSON);
+      await sendRawPayloadResult(client, frame, payload);
+    } catch (err) {
+      const message = String(err);
+      const code = message.toLowerCase().includes("timed out") ? "TIMEOUT" : "INVALID_REQUEST";
+      await sendErrorResult(client, frame, code, message);
+    }
+    return;
+  }
+
+  if (command === DESKTOP_ACCESSIBILITY_SNAPSHOT_COMMAND) {
+    try {
+      const payload = await runDesktopAccessibilitySnapshotCommand(frame.paramsJSON);
       await sendRawPayloadResult(client, frame, payload);
     } catch (err) {
       const message = String(err);

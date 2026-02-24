@@ -9,6 +9,7 @@ const DESKTOP_SNAPSHOT_MAX_BYTES = 16 * 1024 * 1024;
 
 export const DESKTOP_SNAPSHOT_COMMAND = "desktop.snapshot";
 export const DESKTOP_ACT_COMMAND = "desktop.act";
+export const DESKTOP_ACCESSIBILITY_SNAPSHOT_COMMAND = "desktop.accessibility_snapshot";
 
 const DESKTOP_SUPPORTED_PLATFORM = "darwin";
 
@@ -228,21 +229,40 @@ function performDrag(source, params) {
   postMouse(source, kinds.up, toX, toY, button, 1);
 }
 
-function postUnicodeText(source, text) {
-  var nsText = $.NSString.stringWithString(text);
-  var down = $.CGEventCreateKeyboardEvent(source, 0, true);
-  if (!down) {
-    fail("UNAVAILABLE: failed to create keyboard event");
-  }
-  $.CGEventKeyboardSetUnicodeString(down, nsText.length, nsText);
-  $.CGEventPost($.kCGHIDEventTap, down);
+// CGEventKeyboardSetUnicodeString has a hard limit of ~20 UniChar per event.
+// Split text into chunks and post each as a separate key event pair.
+var MAX_UNICODE_CHUNK = 20;
 
-  var up = $.CGEventCreateKeyboardEvent(source, 0, false);
-  if (!up) {
-    fail("UNAVAILABLE: failed to create keyboard event");
+function postUnicodeText(source, text) {
+  var nsFullText = $.NSString.stringWithString(text);
+  var totalLen = nsFullText.length;
+  var offset = 0;
+
+  while (offset < totalLen) {
+    var chunkLen = Math.min(MAX_UNICODE_CHUNK, totalLen - offset);
+    var chunk = nsFullText.substringWithRange($.NSMakeRange(offset, chunkLen));
+
+    var down = $.CGEventCreateKeyboardEvent(source, 0, true);
+    if (!down) {
+      fail("UNAVAILABLE: failed to create keyboard event");
+    }
+    $.CGEventKeyboardSetUnicodeString(down, chunkLen, chunk);
+    $.CGEventPost($.kCGHIDEventTap, down);
+
+    var up = $.CGEventCreateKeyboardEvent(source, 0, false);
+    if (!up) {
+      fail("UNAVAILABLE: failed to create keyboard event");
+    }
+    $.CGEventKeyboardSetUnicodeString(up, chunkLen, chunk);
+    $.CGEventPost($.kCGHIDEventTap, up);
+
+    offset += chunkLen;
+
+    // Small delay between chunks to allow the system to process each event
+    if (offset < totalLen) {
+      sleepMs(10);
+    }
   }
-  $.CGEventKeyboardSetUnicodeString(up, nsText.length, nsText);
-  $.CGEventPost($.kCGHIDEventTap, up);
 }
 
 function performType(source, params) {
@@ -499,6 +519,226 @@ function performScroll(source, params) {
   console.log(JSON.stringify({ ok: true, kind: kind }));
 })();
 `;
+
+// JXA script that walks the macOS accessibility tree (AXUIElement) and returns
+// a structured list of UI elements with their role, title/value, and bounds.
+// The output is a flat JSON array written to stdout.
+const DESKTOP_ACCESSIBILITY_JXA = `
+ObjC.import("Foundation");
+ObjC.import("ApplicationServices");
+ObjC.import("CoreGraphics");
+
+var MAX_DEPTH = 8;
+var MAX_ELEMENTS = 200;
+var collected = 0;
+
+function axValue(element, attr) {
+  var ref = Ref();
+  var err = $.AXUIElementCopyAttributeValue(element, attr, ref);
+  if (err !== 0) {
+    return undefined;
+  }
+  var value = ref[0];
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  return value;
+}
+
+function axStringValue(element, attr) {
+  var value = axValue(element, attr);
+  if (value === undefined || value === null) {
+    return "";
+  }
+  try {
+    return ObjC.unwrap(value) || "";
+  } catch (_e) {
+    return String(value);
+  }
+}
+
+function axPosition(element) {
+  var ref = Ref();
+  var err = $.AXUIElementCopyAttributeValue(element, "AXPosition", ref);
+  if (err !== 0) {
+    return null;
+  }
+  var point = Ref();
+  if (!$.AXValueGetValue(ref[0], $.kAXValueCGPointType, point)) {
+    return null;
+  }
+  return { x: point[0].x, y: point[0].y };
+}
+
+function axSize(element) {
+  var ref = Ref();
+  var err = $.AXUIElementCopyAttributeValue(element, "AXSize", ref);
+  if (err !== 0) {
+    return null;
+  }
+  var size = Ref();
+  if (!$.AXValueGetValue(ref[0], $.kAXValueCGSizeType, size)) {
+    return null;
+  }
+  return { w: size[0].width, h: size[0].height };
+}
+
+function axChildren(element) {
+  var ref = Ref();
+  var err = $.AXUIElementCopyAttributeValue(element, "AXChildren", ref);
+  if (err !== 0) {
+    return [];
+  }
+  var children = ref[0];
+  if (!children || typeof children.count !== "function") {
+    return [];
+  }
+  var result = [];
+  var count = children.count;
+  for (var i = 0; i < count; i++) {
+    result.push(children.objectAtIndex(i));
+  }
+  return result;
+}
+
+function walkElement(element, depth, results) {
+  if (collected >= MAX_ELEMENTS || depth > MAX_DEPTH) {
+    return;
+  }
+  var role = axStringValue(element, "AXRole");
+  if (!role) {
+    return;
+  }
+  // Skip invisible elements
+  var hidden = axValue(element, "AXHidden");
+  if (hidden === true || hidden === 1) {
+    return;
+  }
+
+  var subrole = axStringValue(element, "AXSubrole");
+  var title = axStringValue(element, "AXTitle");
+  var value = axStringValue(element, "AXValue");
+  var roleDesc = axStringValue(element, "AXRoleDescription");
+  var enabled = axValue(element, "AXEnabled");
+  var pos = axPosition(element);
+  var size = axSize(element);
+
+  // Skip zero-size elements
+  if (size && size.w === 0 && size.h === 0) {
+    return;
+  }
+
+  var entry = {
+    role: role.replace(/^AX/, ""),
+    depth: depth,
+  };
+  if (subrole) {
+    entry.subrole = subrole.replace(/^AX/, "");
+  }
+  if (title) {
+    entry.title = title.substring(0, 200);
+  }
+  if (value && typeof value === "string") {
+    entry.value = value.substring(0, 200);
+  }
+  if (roleDesc) {
+    entry.roleDescription = roleDesc.substring(0, 100);
+  }
+  if (pos && size) {
+    entry.bounds = {
+      x: Math.round(pos.x),
+      y: Math.round(pos.y),
+      w: Math.round(size.w),
+      h: Math.round(size.h),
+    };
+  }
+  if (enabled === false || enabled === 0) {
+    entry.enabled = false;
+  }
+
+  results.push(entry);
+  collected++;
+
+  var children = axChildren(element);
+  for (var i = 0; i < children.length; i++) {
+    if (collected >= MAX_ELEMENTS) {
+      break;
+    }
+    walkElement(children[i], depth + 1, results);
+  }
+}
+
+(function main() {
+  if (!$.AXIsProcessTrusted()) {
+    console.log(JSON.stringify({
+      ok: false,
+      error: "UNAVAILABLE: Accessibility permission required (System Settings > Privacy & Security > Accessibility).",
+      elements: [],
+    }));
+    return;
+  }
+
+  var systemWide = $.AXUIElementCreateSystemWide();
+  var focusedAppRef = Ref();
+  var err = $.AXUIElementCopyAttributeValue(systemWide, "AXFocusedApplication", focusedAppRef);
+  if (err !== 0) {
+    console.log(JSON.stringify({
+      ok: false,
+      error: "UNAVAILABLE: no focused application found",
+      elements: [],
+    }));
+    return;
+  }
+
+  var app = focusedAppRef[0];
+  var appTitle = "";
+  try {
+    appTitle = ObjC.unwrap(axValue(app, "AXTitle")) || "";
+  } catch (_e) {}
+
+  // Get focused window
+  var windowRef = Ref();
+  err = $.AXUIElementCopyAttributeValue(app, "AXFocusedWindow", windowRef);
+  var targetElement = err === 0 && windowRef[0] ? windowRef[0] : app;
+
+  var results = [];
+  walkElement(targetElement, 0, results);
+
+  console.log(JSON.stringify({
+    ok: true,
+    app: appTitle,
+    elementCount: results.length,
+    truncated: collected >= MAX_ELEMENTS,
+    elements: results,
+  }));
+})();
+`;
+
+const DESKTOP_ACCESSIBILITY_SNAPSHOT_DEFAULT_TIMEOUT_MS = 10_000;
+
+type DesktopAccessibilitySnapshotParams = {
+  timeoutMs?: number;
+};
+
+type DesktopAccessibilityElement = {
+  role: string;
+  depth: number;
+  subrole?: string;
+  title?: string;
+  value?: string;
+  roleDescription?: string;
+  bounds?: { x: number; y: number; w: number; h: number };
+  enabled?: boolean;
+};
+
+type DesktopAccessibilityResult = {
+  ok: boolean;
+  error?: string;
+  app?: string;
+  elementCount?: number;
+  truncated?: boolean;
+  elements: DesktopAccessibilityElement[];
+};
 
 function decodeParamsRequired<T>(raw?: string | null): T {
   if (!raw) {
@@ -762,6 +1002,40 @@ async function readImageSize(filePath: string, timeoutMs: number) {
   return parseSipsImageSize(result.stdout);
 }
 
+/** Get the main display's logical size and backing scale factor via JXA. */
+async function readScreenInfo(
+  timeoutMs: number,
+): Promise<{ screenWidth?: number; screenHeight?: number; scaleFactor?: number }> {
+  // Use NSScreen to get logical size and backingScaleFactor
+  const script = `
+    ObjC.import("AppKit");
+    var screen = $.NSScreen.mainScreen;
+    var frame = screen.frame;
+    var scale = screen.backingScaleFactor;
+    console.log(JSON.stringify({
+      w: Math.round(frame.size.width),
+      h: Math.round(frame.size.height),
+      s: scale,
+    }));
+  `;
+  const result = await runProcess("/usr/bin/osascript", ["-l", "JavaScript", "-e", script], {
+    timeoutMs,
+  });
+  if (result.exitCode !== 0 || result.timedOut) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(result.stdout.trim()) as { w?: number; h?: number; s?: number };
+    return {
+      screenWidth: typeof parsed.w === "number" ? parsed.w : undefined,
+      screenHeight: typeof parsed.h === "number" ? parsed.h : undefined,
+      scaleFactor: typeof parsed.s === "number" ? parsed.s : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
 export function isDesktopCommandSupported(platform = process.platform): boolean {
   return platform === DESKTOP_SUPPORTED_PLATFORM;
 }
@@ -774,7 +1048,7 @@ export function listDesktopNodeCommands(platform = process.platform): string[] {
   if (!isDesktopCommandSupported(platform)) {
     return [];
   }
-  return [DESKTOP_SNAPSHOT_COMMAND, DESKTOP_ACT_COMMAND];
+  return [DESKTOP_SNAPSHOT_COMMAND, DESKTOP_ACT_COMMAND, DESKTOP_ACCESSIBILITY_SNAPSHOT_COMMAND];
 }
 
 export async function runDesktopSnapshotCommand(paramsJSON?: string | null): Promise<string> {
@@ -848,12 +1122,18 @@ export async function runDesktopSnapshotCommand(paramsJSON?: string | null): Pro
       );
     }
 
-    const size = await readImageSize(finalPath, timeoutMs);
+    const [size, screenInfo] = await Promise.all([
+      readImageSize(finalPath, timeoutMs),
+      readScreenInfo(timeoutMs),
+    ]);
     return JSON.stringify({
       format,
       base64: data.toString("base64"),
       ...(size.width ? { width: size.width } : {}),
       ...(size.height ? { height: size.height } : {}),
+      ...(screenInfo.screenWidth ? { screenWidth: screenInfo.screenWidth } : {}),
+      ...(screenInfo.screenHeight ? { screenHeight: screenInfo.screenHeight } : {}),
+      ...(screenInfo.scaleFactor ? { scaleFactor: screenInfo.scaleFactor } : {}),
     });
   } finally {
     await fsPromises.rm(workDir, { recursive: true, force: true }).catch(() => undefined);
@@ -907,4 +1187,65 @@ export async function runDesktopActCommand(paramsJSON?: string | null): Promise<
 
   const payload = parseDesktopActResult(osa.stdout);
   return JSON.stringify(payload);
+}
+
+/** Format accessibility elements into an indented text tree (similar to browser snapshot). */
+export function formatAccessibilitySnapshot(result: DesktopAccessibilityResult): string {
+  if (!result.ok || result.elements.length === 0) {
+    return "";
+  }
+  const lines: string[] = [];
+  for (const el of result.elements) {
+    const indent = "  ".repeat(el.depth);
+    const label = el.title || el.value || "";
+    const boundsStr = el.bounds
+      ? ` (${el.bounds.x}, ${el.bounds.y}, ${el.bounds.w}, ${el.bounds.h})`
+      : "";
+    const disabledStr = el.enabled === false ? " [disabled]" : "";
+    const roleName = el.roleDescription || el.role;
+    if (label) {
+      lines.push(`${indent}[${roleName}] "${label}"${boundsStr}${disabledStr}`);
+    } else {
+      lines.push(`${indent}[${roleName}]${boundsStr}${disabledStr}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+export async function runDesktopAccessibilitySnapshotCommand(
+  paramsJSON?: string | null,
+): Promise<string> {
+  await ensureDesktopSupported();
+  const params = decodeParamsOptional<DesktopAccessibilitySnapshotParams>(paramsJSON);
+  const timeoutMs =
+    positiveOptionalInteger(params.timeoutMs, "timeoutMs") ??
+    DESKTOP_ACCESSIBILITY_SNAPSHOT_DEFAULT_TIMEOUT_MS;
+
+  const osa = await runProcess(
+    "/usr/bin/osascript",
+    ["-l", "JavaScript", "-e", DESKTOP_ACCESSIBILITY_JXA],
+    { timeoutMs },
+  );
+
+  if (osa.exitCode !== 0) {
+    throw describeProcessFailure("desktop accessibility snapshot", osa);
+  }
+
+  const trimmed = osa.stdout.trim();
+  if (!trimmed) {
+    return JSON.stringify({ ok: false, error: "empty output", elements: [], text: "" });
+  }
+
+  let parsed: DesktopAccessibilityResult;
+  try {
+    parsed = JSON.parse(trimmed) as DesktopAccessibilityResult;
+  } catch {
+    return JSON.stringify({ ok: false, error: "invalid JSON output", elements: [], text: "" });
+  }
+
+  const text = formatAccessibilitySnapshot(parsed);
+  return JSON.stringify({
+    ...parsed,
+    text,
+  });
 }

@@ -254,8 +254,9 @@ export function buildAgentSystemPrompt(params: {
     browser: "Control web browser",
     canvas: "Present/eval/snapshot the Canvas",
     visual:
-      "Visual operator loop (screenshot -> vision decision -> browser/desktop action execution with bounded retries)",
-    nodes: "List/describe/notify/camera/screen/desktop on paired nodes",
+      "Autonomous visual operator loop (screenshot -> vision model decision -> execute action -> repeat until goal achieved). PREFERRED for all desktop GUI tasks — use instead of nodes.desktop_act for multi-step UI operations like opening apps, clicking menus, or filling forms.",
+    nodes:
+      "List/describe/notify/camera/screen/desktop on paired nodes. For desktop UI tasks prefer the visual tool which runs a full autonomous loop with screenshot verification.",
     cron: "Manage cron jobs and wake events (use for reminders; when scheduling a reminder, write the systemEvent text as something that will read like a reminder when it fires, and mention that it is a reminder depending on the time gap between setting and firing; include recent context in reminder text if appropriate)",
     message: "Send messages and channel actions",
     gateway: "Restart, apply config, or run updates on the running OpenClaw process",
@@ -455,6 +456,18 @@ export function buildAgentSystemPrompt(params: {
     "Keep narration brief and value-dense; avoid repeating obvious steps.",
     "Use plain human language for narration unless in a technical context.",
     "",
+    // Desktop automation rules: when visual tool is available, force agent to use it
+    ...(availableTools.has("visual")
+      ? [
+          "## Desktop Operations",
+          "For ALL desktop GUI tasks (opening apps, clicking UI elements, navigating menus, filling forms, selecting options):",
+          "- ALWAYS use `visual(action=run, target=desktop, goal=...)` which runs a screenshot→VLM→execute autonomous loop.",
+          "- NEVER call `nodes(action=desktop_act)` directly for multi-step desktop tasks — the visual tool handles desktop_act internally with screenshot verification.",
+          "- The `visual` tool captures screenshots, uses a vision model to decide actions, executes them, and verifies completion autonomously.",
+          "- You may still use `nodes(action=desktop_snapshot)` for read-only screenshots if you just need to see the screen.",
+          "",
+        ]
+      : []),
     ...safetySection,
     "## OpenClaw CLI Quick Reference",
     "OpenClaw is controlled via subcommands. Do not invent commands.",
