@@ -270,7 +270,10 @@ function performType(source, params) {
   if (!text) {
     fail("INVALID_REQUEST: text required");
   }
-  postUnicodeText(source, text);
+  // Use System Events keystroke for reliable text input into any focused field
+  // (CGEvent Unicode events do not reach some system UI like Spotlight).
+  var se = Application("System Events");
+  se.keystroke(text);
 }
 
 function modifierFromToken(token) {
