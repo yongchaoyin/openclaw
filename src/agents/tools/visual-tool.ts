@@ -764,12 +764,16 @@ function resolveLoopSettings(
   const target: VisualTarget = targetRaw === "desktop" ? "desktop" : "browser";
   const goal = readStringParam(params.args, "goal", { required: true });
   const runId = readStringParam(params.args, "runId") ?? defaultRunId;
-  const maxLoopCountOverride = readBoundedInt({
-    value: params.args.maxLoopCount,
-    label: "maxLoopCount",
-    min: MIN_MAX_LOOP_COUNT,
-    max: MAX_MAX_LOOP_COUNT,
-  });
+  // Step mode always uses a single loop; ignore any explicit maxLoopCount to avoid
+  // rejecting helper clients that set it to 1.
+  const maxLoopCountOverride = stepMode
+    ? undefined
+    : readBoundedInt({
+        value: params.args.maxLoopCount,
+        label: "maxLoopCount",
+        min: MIN_MAX_LOOP_COUNT,
+        max: MAX_MAX_LOOP_COUNT,
+      });
   const loopIntervalInMsOverride = readBoundedInt({
     value: params.args.loopIntervalInMs,
     label: "loopIntervalInMs",

@@ -18,6 +18,7 @@ import {
   normalizeControlUiBasePath,
   resolveAssistantAvatarUrl,
 } from "./control-ui-shared.js";
+import { isLoopbackAddress } from "./net.js";
 
 const ROOT_PREFIX = "/";
 
@@ -210,6 +211,58 @@ function serveResolvedIndexHtml(res: ServerResponse, body: string) {
   res.end(body);
 }
 
+type ControlUiAutoTokenDecision = {
+  token: string;
+};
+
+function resolveControlUiAutoTokenDecision(
+  req: IncomingMessage,
+  config?: OpenClawConfig,
+): ControlUiAutoTokenDecision | null {
+  const token = config?.gateway?.auth?.token?.trim() ?? "";
+  if (!token) {
+    return null;
+  }
+  const mode = config?.gateway?.auth?.mode;
+  if (mode && mode !== "token") {
+    return null;
+  }
+  const bind = config?.gateway?.bind ?? "loopback";
+  if (bind !== "loopback") {
+    return null;
+  }
+  if (!isLoopbackAddress(req.socket.remoteAddress)) {
+    return null;
+  }
+  return { token };
+}
+
+function maybeRedirectControlUiWithToken(
+  res: ServerResponse,
+  url: URL,
+  decision: ControlUiAutoTokenDecision | null,
+): boolean {
+  if (!decision) {
+    return false;
+  }
+  if (url.searchParams.get("ui_authed") === "1") {
+    return false;
+  }
+  const next = new URL(url.toString());
+  next.searchParams.set("ui_authed", "1");
+  const hashParams = new URLSearchParams(
+    next.hash.startsWith("#") ? next.hash.slice(1) : next.hash,
+  );
+  if (!hashParams.get("token")) {
+    hashParams.set("token", decision.token);
+  }
+  next.hash = hashParams.toString() ? `#${hashParams.toString()}` : "";
+  res.statusCode = 302;
+  res.setHeader("Location", `${next.pathname}${next.search}${next.hash}`);
+  res.end();
+  return true;
+}
+
 function isContainedPath(baseDir: string, targetPath: string): boolean {
   const relative = path.relative(baseDir, targetPath);
   return relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
@@ -294,6 +347,7 @@ export function handleControlUiHttpRequest(
   const url = new URL(urlRaw, "http://localhost");
   const basePath = normalizeControlUiBasePath(opts?.basePath);
   const pathname = url.pathname;
+  const autoTokenDecision = resolveControlUiAutoTokenDecision(req, opts?.config);
 
   if (!basePath) {
     if (pathname === "/ui" || pathname.startsWith("/ui/")) {
@@ -436,6 +490,9 @@ export function handleControlUiHttpRequest(
         return true;
       }
       if (path.basename(safeFile.path) === "index.html") {
+        if (maybeRedirectControlUiWithToken(res, url, autoTokenDecision)) {
+          return true;
+        }
         serveResolvedIndexHtml(res, fs.readFileSync(safeFile.fd, "utf8"));
         return true;
       }
@@ -465,6 +522,9 @@ export function handleControlUiHttpRequest(
         res.statusCode = 200;
         setStaticFileHeaders(res, safeIndex.path);
         res.end();
+        return true;
+      }
+      if (maybeRedirectControlUiWithToken(res, url, autoTokenDecision)) {
         return true;
       }
       serveResolvedIndexHtml(res, fs.readFileSync(safeIndex.fd, "utf8"));
