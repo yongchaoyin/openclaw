@@ -1,4 +1,6 @@
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
+import type { DesktopAxRef } from "../../node-host/invoke-desktop.js";
+import { annotateDesktopScreenshot } from "./visual-tool.annotate.js";
 import { asRecord, extractToolImage, extractToolText } from "./visual-tool.parse.js";
 import type { VisualImage, VisualObservation } from "./visual-tool.types.js";
 import {
@@ -104,16 +106,41 @@ export async function observeDesktop(params: {
     }
   }
 
+  // Annotate screenshot with Set-of-Marks (orange boxes + ref labels) when
+  // accessibility refs and dimension info are available. This lets VLMs visually
+  // match ref labels on the screenshot instead of guessing pixel coordinates.
+  const imageW = typeof details.width === "number" ? details.width : 0;
+  const imageH = typeof details.height === "number" ? details.height : 0;
+  const screenW = typeof details.screenWidth === "number" ? details.screenWidth : 0;
+  const screenH = typeof details.screenHeight === "number" ? details.screenHeight : 0;
+
+  let annotatedImage = image;
+  if (axRefs && axRefs.length > 0 && imageW > 0 && imageH > 0 && screenW > 0 && screenH > 0) {
+    try {
+      annotatedImage = await annotateDesktopScreenshot({
+        imageBase64: image.base64,
+        mimeType: image.mimeType,
+        axRefs: axRefs as DesktopAxRef[],
+        imageWidth: imageW,
+        imageHeight: imageH,
+        screenWidth: screenW,
+        screenHeight: screenH,
+      });
+    } catch {
+      // Annotation failure is non-fatal — fall back to original screenshot
+    }
+  }
+
   return {
     capturedAt: params.now(),
     target: "desktop",
-    image,
+    image: annotatedImage,
     snapshotText,
     meta: {
-      ...(typeof details.width === "number" ? { width: details.width } : {}),
-      ...(typeof details.height === "number" ? { height: details.height } : {}),
-      ...(typeof details.screenWidth === "number" ? { screenWidth: details.screenWidth } : {}),
-      ...(typeof details.screenHeight === "number" ? { screenHeight: details.screenHeight } : {}),
+      ...(imageW > 0 ? { width: imageW } : {}),
+      ...(imageH > 0 ? { height: imageH } : {}),
+      ...(screenW > 0 ? { screenWidth: screenW } : {}),
+      ...(screenH > 0 ? { screenHeight: screenH } : {}),
       ...(typeof details.scaleFactor === "number" ? { scaleFactor: details.scaleFactor } : {}),
       ...(typeof details.format === "string" ? { format: details.format } : {}),
       ...(axRefs ? { axRefs } : {}),

@@ -72,6 +72,7 @@ export function buildVisualModelPrompt(input: VisualDecisionPromptInput): string
       desktopRules.push(
         "A UI element tree from the accessibility API is provided below.",
         'Each actionable element has a [ref=dN] tag and shows [role] "label" (x, y, width, height) [ref=dN].',
+        "The screenshot has ORANGE labeled boxes matching these refs — look for the orange rectangles with dN labels.",
         "IMPORTANT: When a [ref=dN] element matches your target, return that ref in the JSON. The runtime will click its exact center.",
         'Example: {"kind":"click","ref":"d5","reason":"click the OK button"}',
         "Only estimate x/y from the screenshot when NO matching ref element exists.",
