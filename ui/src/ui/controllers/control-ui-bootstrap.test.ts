@@ -24,7 +24,7 @@ describe("loadControlUiBootstrapConfig", () => {
       assistantAgentId: null,
     };
 
-    await loadControlUiBootstrapConfig(state);
+    const applied = await loadControlUiBootstrapConfig(state);
 
     expect(fetchMock).toHaveBeenCalledWith(
       `/openclaw${CONTROL_UI_BOOTSTRAP_CONFIG_PATH}`,
@@ -33,6 +33,7 @@ describe("loadControlUiBootstrapConfig", () => {
     expect(state.assistantName).toBe("Ops");
     expect(state.assistantAvatar).toBe("O");
     expect(state.assistantAgentId).toBe("main");
+    expect(applied).toBe(false);
 
     vi.unstubAllGlobals();
   });
@@ -48,13 +49,14 @@ describe("loadControlUiBootstrapConfig", () => {
       assistantAgentId: null,
     };
 
-    await loadControlUiBootstrapConfig(state);
+    const applied = await loadControlUiBootstrapConfig(state);
 
     expect(fetchMock).toHaveBeenCalledWith(
       CONTROL_UI_BOOTSTRAP_CONFIG_PATH,
       expect.objectContaining({ method: "GET" }),
     );
     expect(state.assistantName).toBe("Assistant");
+    expect(applied).toBe(false);
 
     vi.unstubAllGlobals();
   });
@@ -70,12 +72,58 @@ describe("loadControlUiBootstrapConfig", () => {
       assistantAgentId: null,
     };
 
-    await loadControlUiBootstrapConfig(state);
+    const applied = await loadControlUiBootstrapConfig(state);
 
     expect(fetchMock).toHaveBeenCalledWith(
       `/openclaw${CONTROL_UI_BOOTSTRAP_CONFIG_PATH}`,
       expect.objectContaining({ method: "GET" }),
     );
+    expect(applied).toBe(false);
+
+    vi.unstubAllGlobals();
+  });
+
+  it("hydrates gateway token when missing", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        basePath: "",
+        assistantName: "Ops",
+        assistantAvatar: "O",
+        assistantAgentId: "main",
+        gatewayToken: "local-token",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    const applySettings = vi.fn();
+    const state = {
+      basePath: "",
+      assistantName: "Assistant",
+      assistantAvatar: null,
+      assistantAgentId: null,
+      settings: {
+        gatewayUrl: "ws://127.0.0.1:19001",
+        token: "",
+        sessionKey: "main",
+        lastActiveSessionKey: "main",
+        theme: "system",
+        chatFocusMode: false,
+        chatShowThinking: true,
+        splitRatio: 0.6,
+        navCollapsed: false,
+        navGroupsCollapsed: {},
+      },
+      applySettings,
+    };
+
+    const applied = await loadControlUiBootstrapConfig(state);
+
+    expect(applied).toBe(true);
+    expect(applySettings).toHaveBeenCalledWith({
+      ...state.settings,
+      token: "local-token",
+    });
 
     vi.unstubAllGlobals();
   });

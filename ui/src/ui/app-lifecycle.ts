@@ -42,7 +42,12 @@ type LifecycleHost = {
 
 export function handleConnected(host: LifecycleHost) {
   host.basePath = inferBasePath();
-  void loadControlUiBootstrapConfig(host);
+  const bootstrapPromise = loadControlUiBootstrapConfig(host);
+  void bootstrapPromise.then((appliedToken) => {
+    if (appliedToken) {
+      connectGateway(host as unknown as Parameters<typeof connectGateway>[0]);
+    }
+  });
   applySettingsFromUrl(host as unknown as Parameters<typeof applySettingsFromUrl>[0]);
   syncTabWithLocation(host as unknown as Parameters<typeof syncTabWithLocation>[0], true);
   syncThemeWithSettings(host as unknown as Parameters<typeof syncThemeWithSettings>[0]);

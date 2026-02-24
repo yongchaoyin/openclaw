@@ -4,20 +4,44 @@ import {
 } from "../../../../src/gateway/control-ui-contract.js";
 import { normalizeAssistantIdentity } from "../assistant-identity.ts";
 import { normalizeBasePath } from "../navigation.ts";
+import type { UiSettings } from "../storage.ts";
 
 export type ControlUiBootstrapState = {
   basePath: string;
   assistantName: string;
   assistantAvatar: string | null;
   assistantAgentId: string | null;
+  settings?: UiSettings;
+  applySettings?: (next: UiSettings) => void;
 };
 
-export async function loadControlUiBootstrapConfig(state: ControlUiBootstrapState) {
+function maybeApplyGatewayToken(
+  state: ControlUiBootstrapState,
+  token: string | undefined,
+): boolean {
+  const nextToken = token?.trim();
+  if (!nextToken) {
+    return false;
+  }
+  const settings = state.settings;
+  if (!settings || settings.token.trim()) {
+    return false;
+  }
+  if (typeof state.applySettings !== "function") {
+    return false;
+  }
+  state.applySettings({ ...settings, token: nextToken });
+  return true;
+}
+
+export async function loadControlUiBootstrapConfig(
+  state: ControlUiBootstrapState,
+): Promise<boolean> {
   if (typeof window === "undefined") {
-    return;
+    return false;
   }
   if (typeof fetch !== "function") {
-    return;
+    return false;
   }
 
   const basePath = normalizeBasePath(state.basePath ?? "");
@@ -32,7 +56,7 @@ export async function loadControlUiBootstrapConfig(state: ControlUiBootstrapStat
       credentials: "same-origin",
     });
     if (!res.ok) {
-      return;
+      return false;
     }
     const parsed = (await res.json()) as ControlUiBootstrapConfig;
     const normalized = normalizeAssistantIdentity({
@@ -43,7 +67,9 @@ export async function loadControlUiBootstrapConfig(state: ControlUiBootstrapStat
     state.assistantName = normalized.name;
     state.assistantAvatar = normalized.avatar;
     state.assistantAgentId = normalized.agentId ?? null;
+    return maybeApplyGatewayToken(state, parsed.gatewayToken);
   } catch {
     // Ignore bootstrap failures; UI will update identity after connecting.
+    return false;
   }
 }

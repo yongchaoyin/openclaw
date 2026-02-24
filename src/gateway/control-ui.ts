@@ -397,6 +397,9 @@ export function handleControlUiHttpRequest(
       assistantName: identity.name,
       assistantAvatar: avatarValue ?? identity.avatar,
       assistantAgentId: identity.agentId,
+      ...(autoTokenDecision
+        ? { gatewayToken: autoTokenDecision.token, gatewayTokenSource: "loopback" }
+        : {}),
     } satisfies ControlUiBootstrapConfig);
     return true;
   }
